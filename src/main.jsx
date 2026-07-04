@@ -23,7 +23,7 @@ const views = [
   ["prep", "Prep"],
 ];
 const baseUrl = import.meta.env.BASE_URL;
-const appVersion = "0.1.31";
+const appVersion = "0.1.32";
 
 function App() {
   const [data, setData] = useState(null);
@@ -194,6 +194,7 @@ function App() {
               setIngredientMode={setIngredientMode}
               setUnitMode={setUnitMode}
               unitMode={unitMode}
+              weeks={weeks}
               workingWeeks={workingWeeks}
             />
           ) : null}
@@ -942,6 +943,7 @@ function ArchiveView({
   setIngredientMode,
   setUnitMode,
   unitMode,
+  weeks,
   workingWeeks,
 }) {
   const directories = useMemo(() => buildArchiveDirectories(docs), [docs]);
@@ -974,6 +976,7 @@ function ArchiveView({
           activeDocId={activeDocId}
           archiveDocs={archiveDocs}
           onSaveWorkingWeek={onSaveWorkingWeek}
+          weeks={weeks}
           workingWeeks={workingWeeks}
         />
       <div className="split-view">
@@ -1012,14 +1015,15 @@ function ArchiveView({
             <QuantityUnitToggle mode={unitMode} setMode={setUnitMode} />
           </div>
           <MarkdownDoc ingredientMode={ingredientMode} unitMode={unitMode} markdown={selected ? selected.markdown : "# Recipe Archive\n\nPromoted and archived recipes will render here."} />
+          {selected ? <RecipeFeedbackPanel recipe={selected} /> : null}
         </div>
       </div>
     </div>
   );
 }
 
-function CreateWeeklyMenuPanel({ activeDocId, archiveDocs, onSaveWorkingWeek, workingWeeks }) {
-  const defaultWeek = useMemo(() => getNextPlanningWeekDefaults(), []);
+function CreateWeeklyMenuPanel({ activeDocId, archiveDocs, onSaveWorkingWeek, weeks, workingWeeks }) {
+  const defaultWeek = useMemo(() => getNextPlanningWeekDefaults(weeks), [weeks]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [targetMode, setTargetMode] = useState("new");
   const [targetWeekId, setTargetWeekId] = useState("");
@@ -1041,6 +1045,15 @@ function CreateWeeklyMenuPanel({ activeDocId, archiveDocs, onSaveWorkingWeek, wo
     : buildWeekDayOptions(startDate);
   const targetDay = selectedDay || dayOptions[0] || "";
   const previewRows = draftRows.length ? draftRows : createBlankMenuRows(dayOptions);
+
+  const openDialog = () => {
+    const nextDefaults = getNextPlanningWeekDefaults(weeks);
+    setYear(String(nextDefaults.year));
+    setWeekNumber(String(nextDefaults.weekNumber));
+    setStartDate(nextDefaults.startDate);
+    setSelectedDay("");
+    setDialogOpen(true);
+  };
 
   useEffect(() => {
     if (archiveDocs.some((doc) => doc.id === activeDocId)) {
@@ -1142,7 +1155,7 @@ function CreateWeeklyMenuPanel({ activeDocId, archiveDocs, onSaveWorkingWeek, wo
       <button
         aria-label="Create or edit weekly menu"
         className="week-fab"
-        onClick={() => setDialogOpen(true)}
+        onClick={openDialog}
         type="button"
       >
         <span aria-hidden="true">+</span>
@@ -1657,7 +1670,25 @@ function createBlankMenuRows(dayOptions) {
   }));
 }
 
-function getNextPlanningWeekDefaults() {
+function getNextPlanningWeekDefaults(existingWeeks = []) {
+  const latestWeek = [...existingWeeks]
+    .filter((week) => parseLocalDate(week.startDate))
+    .sort((a, b) => parseLocalDate(b.startDate) - parseLocalDate(a.startDate))[0];
+
+  if (latestWeek) {
+    const nextStart = parseLocalDate(latestWeek.startDate);
+    nextStart.setDate(nextStart.getDate() + 7);
+    const latestWeekNumber = weekNumberFromWeek(latestWeek);
+    const nextWeekNumber = latestWeekNumber >= 1 && latestWeekNumber < 53
+      ? latestWeekNumber + 1
+      : isoWeekNumber(nextStart);
+    return {
+      startDate: formatInputDate(nextStart),
+      weekNumber: nextWeekNumber,
+      year: nextStart.getFullYear(),
+    };
+  }
+
   const today = startOfLocalDay(new Date());
   const nextSunday = new Date(today);
   const daysUntilSunday = (7 - today.getDay()) % 7 || 7;
@@ -1667,6 +1698,15 @@ function getNextPlanningWeekDefaults() {
     weekNumber: isoWeekNumber(nextSunday),
     year: nextSunday.getFullYear(),
   };
+}
+
+function weekNumberFromWeek(week) {
+  const direct = Number(week.weekNumber);
+  if (Number.isFinite(direct) && direct > 0) {
+    return direct;
+  }
+  const match = `${week.id || ""} ${week.label || ""}`.match(/\bweek[-\s]*(\d{1,2})\b/i);
+  return match ? Number(match[1]) : 0;
 }
 
 function buildWeekDayOptions(startDate) {
