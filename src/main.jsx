@@ -12,6 +12,8 @@ import { markdownToHtml } from "./services/markdown.js";
 import { clearPrepState, subscribePrepState, togglePrepTask } from "./services/prepStore.js";
 import { saveRecipeFeedback, subscribeRecipeFeedback } from "./services/recipeFeedbackStore.js";
 import { formatQuantity } from "./services/units.js";
+import { subscribeWeekPlanState } from "./services/weekPlanStore.js";
+import { subscribeWorkingWeeks, upsertWeek, upsertWorkingWeek } from "./services/workingWeeksStore.js";
 import "./styles.css";
 
 const views = [
@@ -21,7 +23,7 @@ const views = [
   ["prep", "Prep"],
 ];
 const baseUrl = import.meta.env.BASE_URL;
-const appVersion = "0.1.22";
+const appVersion = "0.1.25";
 
 function App() {
   const [data, setData] = useState(null);
@@ -32,6 +34,7 @@ function App() {
   const [unitMode, setUnitMode] = useState("us");
   const [search, setSearch] = useState("");
   const [installPrompt, setInstallPrompt] = useState(null);
+  const [workingWeeks, setWorkingWeeks] = useState([]);
 
   useEffect(() => {
     loadData().then((nextData) => {
@@ -39,6 +42,8 @@ function App() {
       setWeekId((current) => current || getDefaultWeekId(nextData.weeks));
     });
   }, []);
+
+  useEffect(() => subscribeWorkingWeeks(setWorkingWeeks), []);
 
   useEffect(() => {
     if ("serviceWorker" in navigator) {
@@ -54,12 +59,19 @@ function App() {
     return () => window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
   }, []);
 
+  const weeks = useMemo(() => {
+    if (!data) {
+      return [];
+    }
+    return mergeCookbookWeeks(data.weeks, workingWeeks, data.archivedRecipes);
+  }, [data, workingWeeks]);
+
   const selectedWeek = useMemo(() => {
     if (!data) {
       return null;
     }
-    return data.weeks.find((week) => week.id === weekId) || data.weeks[0] || null;
-  }, [data, weekId]);
+    return weeks.find((week) => week.id === weekId) || weeks[0] || null;
+  }, [data, weekId, weeks]);
 
   if (!data) {
     return <div className="empty full-page">Loading cookbook...</div>;
@@ -103,7 +115,7 @@ function App() {
           }}
           value={weekId}
         >
-          {data.weeks.map((week) => (
+          {weeks.map((week) => (
             <option key={week.id} value={week.id}>{week.label}</option>
           ))}
         </select>
@@ -155,6 +167,7 @@ function App() {
           {view === "week" ? (
             <WeekView
               activeDocId={activeDocId}
+              archiveDocs={data.archivedRecipes}
               ingredientMode={ingredientMode}
               search={search}
               setActiveDocId={setActiveDocId}
@@ -166,13 +179,22 @@ function App() {
           ) : null}
           {view === "recipes" ? (
             <ArchiveView
+              archiveDocs={data.archivedRecipes}
               activeDocId={activeDocId}
               docs={filterDocs(data.archivedRecipes, search)}
               ingredientMode={ingredientMode}
+              onSaveWorkingWeek={async (weekPlan) => {
+                setWorkingWeeks((current) => upsertWeek(current, weekPlan));
+                await upsertWorkingWeek(weekPlan);
+                setWeekId(weekPlan.id);
+                setView("week");
+                setActiveDocId("");
+              }}
               setActiveDocId={setActiveDocId}
               setIngredientMode={setIngredientMode}
               setUnitMode={setUnitMode}
               unitMode={unitMode}
+              workingWeeks={workingWeeks}
             />
           ) : null}
           {view === "grocery" ? (
@@ -194,14 +216,25 @@ function App() {
   );
 }
 
-function WeekView({ activeDocId, ingredientMode, search, setActiveDocId, setIngredientMode, setUnitMode, unitMode, week }) {
+function WeekView({ activeDocId, archiveDocs, ingredientMode, search, setActiveDocId, setIngredientMode, setUnitMode, unitMode, week }) {
+  const [weekPlanState, setWeekPlanState] = useState({ menuRows: [] });
+
+  useEffect(() => {
+    if (!week) {
+      return undefined;
+    }
+    return subscribeWeekPlanState(week.id, setWeekPlanState);
+  }, [week]);
+
   if (!week) {
     return <div className="empty">No weekly plans found.</div>;
   }
 
-  const plannedMenuRows = week.weeklyMenu.filter(hasMeal);
+  const sourceMenuRows = weekPlanState.menuRows?.length ? weekPlanState.menuRows : week.weeklyMenu;
+  const plannedMenuRows = sourceMenuRows.filter(hasMeal);
   const menuRows = plannedMenuRows.filter((row) => matchesSearch(Object.values(row).join(" "), search));
-  const selectedDoc = week.recipes.find((doc) => doc.id === activeDocId) || getDefaultRecipeForWeek(week) || week.recipes[0] || null;
+  const allRecipeDocs = [...week.recipes, ...archiveDocs];
+  const selectedDoc = allRecipeDocs.find((doc) => doc.id === activeDocId) || getDefaultRecipeForWeek(week, plannedMenuRows, allRecipeDocs) || allRecipeDocs[0] || null;
 
   return (
     <div className="stack">
@@ -213,10 +246,10 @@ function WeekView({ activeDocId, ingredientMode, search, setActiveDocId, setIngr
         <div className="menu-grid">
           {menuRows.length ? menuRows.map((row) => (
             <DayCard
-              key={`${row.Day}-${row.Meal}`}
+              docs={allRecipeDocs}
+              key={`${row.Day}-${row["Recipe path"] || row["Recipe file"] || row.Meal}`}
               row={row}
               selectedDoc={selectedDoc}
-              week={week}
               onSelect={setActiveDocId}
             />
           )) : <div className="empty">No planned meals match the current search.</div>}
@@ -459,9 +492,8 @@ function formatIngredientChange(change) {
   return `Update ${change.matchIngredient}${replacement ? ` to ${replacement}` : ""}`;
 }
 
-function DayCard({ onSelect, row, selectedDoc, week }) {
-  const recipeFile = row["Recipe file"] || "";
-  const doc = week.recipes.find((candidate) => recipeFile && candidate.path.endsWith(`/${recipeFile}`));
+function DayCard({ docs, onSelect, row, selectedDoc }) {
+  const doc = findRecipeDocForMenuRow(row, docs);
   const isActive = selectedDoc && doc && selectedDoc.id === doc.id;
 
   return (
@@ -473,6 +505,7 @@ function DayCard({ onSelect, row, selectedDoc, week }) {
       <div className="meta-row">
         <span className="pill">{row.Day || "Day"}</span>
         <span>{row.Stage || ""}</span>
+        {row["Plan source"] === "archive" ? <span>Archive</span> : null}
       </div>
       <h3>{row.Meal || ""}</h3>
       <div className="meta-row">
@@ -861,12 +894,30 @@ function PrepSection({ checkedKeys, onToggle, section, week }) {
   );
 }
 
-function ArchiveView({ activeDocId, docs, ingredientMode, setActiveDocId, setIngredientMode, setUnitMode, unitMode }) {
+function ArchiveView({
+  activeDocId,
+  archiveDocs,
+  docs,
+  ingredientMode,
+  onSaveWorkingWeek,
+  setActiveDocId,
+  setIngredientMode,
+  setUnitMode,
+  unitMode,
+  workingWeeks,
+}) {
   const selected = docs.find((doc) => doc.id === activeDocId) || docs[0] || null;
 
   return (
-    <div className="split-view">
-      <div className="folder-tree">
+    <div className="stack">
+        <CreateWeeklyMenuPanel
+          activeDocId={activeDocId}
+          archiveDocs={archiveDocs}
+          onSaveWorkingWeek={onSaveWorkingWeek}
+          workingWeeks={workingWeeks}
+        />
+      <div className="split-view">
+        <div className="folder-tree">
         {docs.length ? (
           <FolderTree
             activeDocId={activeDocId}
@@ -876,13 +927,245 @@ function ArchiveView({ activeDocId, docs, ingredientMode, setActiveDocId, setIng
         ) : (
           <div className="empty">No archived recipes yet. Approved recipes will appear here after they move out of weekly folders.</div>
         )}
-      </div>
-      <div className="recipe-reader">
-        <div className="reader-toolbar">
-          <IngredientDetailToggle mode={ingredientMode} setMode={setIngredientMode} />
-          <QuantityUnitToggle mode={unitMode} setMode={setUnitMode} />
         </div>
-        <MarkdownDoc ingredientMode={ingredientMode} unitMode={unitMode} markdown={selected ? selected.markdown : "# Recipe Archive\n\nPromoted and archived recipes will render here."} />
+        <div className="recipe-reader">
+          <div className="reader-toolbar">
+            <IngredientDetailToggle mode={ingredientMode} setMode={setIngredientMode} />
+            <QuantityUnitToggle mode={unitMode} setMode={setUnitMode} />
+          </div>
+          <MarkdownDoc ingredientMode={ingredientMode} unitMode={unitMode} markdown={selected ? selected.markdown : "# Recipe Archive\n\nPromoted and archived recipes will render here."} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CreateWeeklyMenuPanel({ activeDocId, archiveDocs, onSaveWorkingWeek, workingWeeks }) {
+  const defaultWeek = useMemo(() => getNextPlanningWeekDefaults(), []);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [targetMode, setTargetMode] = useState("new");
+  const [targetWeekId, setTargetWeekId] = useState("");
+  const [selectedArchiveId, setSelectedArchiveId] = useState("");
+  const [year, setYear] = useState(String(defaultWeek.year));
+  const [weekNumber, setWeekNumber] = useState(String(defaultWeek.weekNumber));
+  const [startDate, setStartDate] = useState(defaultWeek.startDate);
+  const [selectedDay, setSelectedDay] = useState("");
+  const [status, setStatus] = useState("");
+
+  const selectedRecipe = archiveDocs.find((doc) => doc.id === selectedArchiveId)
+    || archiveDocs.find((doc) => doc.id === activeDocId)
+    || archiveDocs[0]
+    || null;
+  const targetWeek = workingWeeks.find((week) => week.id === targetWeekId) || null;
+  const dayOptions = targetMode === "existing" && targetWeek
+    ? workingWeekDayOptions(targetWeek)
+    : buildWeekDayOptions(startDate);
+  const targetDay = selectedDay || dayOptions[0] || "";
+  const basePreviewRows = targetMode === "existing" && targetWeek?.menuRows?.length
+    ? targetWeek.menuRows
+    : createBlankMenuRows(dayOptions);
+  const previewRows = selectedRecipe && targetDay
+    ? replaceMenuRowForDay(basePreviewRows, archiveRecipeToMenuRow(selectedRecipe, targetDay))
+    : basePreviewRows;
+
+  useEffect(() => {
+    if (archiveDocs.some((doc) => doc.id === activeDocId)) {
+      setSelectedArchiveId(activeDocId);
+    } else {
+      setSelectedArchiveId((current) => current || archiveDocs[0]?.id || "");
+    }
+  }, [activeDocId, archiveDocs]);
+
+  useEffect(() => {
+    if (targetMode === "existing") {
+      setTargetWeekId((current) => current || workingWeeks[0]?.id || "");
+    }
+  }, [targetMode, workingWeeks]);
+
+  useEffect(() => {
+    setSelectedDay("");
+  }, [startDate, targetMode, targetWeekId]);
+
+  useEffect(() => {
+    if (!dialogOpen) {
+      return undefined;
+    }
+
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setDialogOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [dialogOpen]);
+
+  const saveRecipeToWeek = async (event) => {
+    event.preventDefault();
+    if (!selectedRecipe || !targetDay) {
+      return;
+    }
+
+    const baseWeek = targetMode === "existing" && targetWeek
+      ? targetWeek
+      : createWorkingWeekShell({ startDate, weekNumber, year });
+    const baseRows = baseWeek.menuRows?.length ? baseWeek.menuRows : createBlankMenuRows(dayOptions);
+    const nextRow = archiveRecipeToMenuRow(selectedRecipe, targetDay);
+    const menuRows = replaceMenuRowForDay(baseRows, nextRow);
+    const nextWeek = {
+      ...baseWeek,
+      endDate: weekEndDate(baseWeek.startDate),
+      menuRows,
+      recipePaths: uniqueValues(menuRows.map((row) => row["Recipe path"]).filter(Boolean)),
+    };
+
+    await onSaveWorkingWeek(nextWeek);
+    setStatus(`Added ${selectedRecipe.title} to ${nextWeek.label}`);
+    setDialogOpen(false);
+  };
+
+  return (
+    <>
+      {status ? <span className="pill week-planner-status">{status}</span> : null}
+      <button
+        aria-label="Create or edit weekly menu"
+        className="week-fab"
+        onClick={() => setDialogOpen(true)}
+        type="button"
+      >
+        <span aria-hidden="true">+</span>
+      </button>
+      {dialogOpen ? (
+        <div className="dialog-backdrop" role="presentation" onMouseDown={() => setDialogOpen(false)}>
+          <form
+            aria-label="Create or edit weekly menu"
+            className="card grocery-dialog week-dialog"
+            onMouseDown={(event) => event.stopPropagation()}
+            onSubmit={saveRecipeToWeek}
+          >
+            <div className="dialog-header">
+              <h3>Create Weekly Menu</h3>
+              <button
+                aria-label="Close dialog"
+                className="icon-button"
+                onClick={() => setDialogOpen(false)}
+                type="button"
+              >
+                x
+              </button>
+            </div>
+            {archiveDocs.length ? (
+              <>
+                <p className="dialog-help">Add an archived recipe to a new or existing planning week.</p>
+                <label>
+                  Recipe
+                  <select
+                    onChange={(event) => setSelectedArchiveId(event.target.value)}
+                    value={selectedRecipe?.id || ""}
+                  >
+                    {archiveDocs.map((doc) => (
+                      <option key={doc.id} value={doc.id}>{doc.title}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Target
+                  <select onChange={(event) => setTargetMode(event.target.value)} value={targetMode}>
+                    <option value="new">Create new week</option>
+                    <option value="existing" disabled={!workingWeeks.length}>Edit existing planning week</option>
+                  </select>
+                </label>
+                {targetMode === "existing" ? (
+                  <label>
+                    Week
+                    <select onChange={(event) => setTargetWeekId(event.target.value)} value={targetWeek?.id || ""}>
+                      {workingWeeks.map((week) => (
+                        <option key={week.id} value={week.id}>{week.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  <div className="manual-grocery-grid week-dialog-grid">
+                    <label>
+                      Year
+                      <input
+                        onChange={(event) => setYear(event.target.value)}
+                        value={year}
+                      />
+                    </label>
+                    <label>
+                      Week
+                      <input
+                        min="1"
+                        max="53"
+                        onChange={(event) => setWeekNumber(event.target.value)}
+                        type="number"
+                        value={weekNumber}
+                      />
+                    </label>
+                    <label>
+                      Starts
+                      <input
+                        onChange={(event) => setStartDate(event.target.value)}
+                        type="date"
+                        value={startDate}
+                      />
+                    </label>
+                  </div>
+                )}
+                <label>
+                  Day
+                  <select onChange={(event) => setSelectedDay(event.target.value)} value={targetDay}>
+                    {dayOptions.map((day) => (
+                      <option key={day} value={day}>{day}</option>
+                    ))}
+                  </select>
+                </label>
+                <WeekMenuPreview rows={previewRows} targetDay={targetDay} />
+                <div className="dialog-actions">
+                  <button className="quiet-button" onClick={() => setDialogOpen(false)} type="button">Cancel</button>
+                  <button className="primary-button" type="submit">{targetMode === "existing" ? "Save Week" : "Create Week"}</button>
+                </div>
+              </>
+            ) : (
+              <p className="week-planner-empty">No archived recipes yet. Approved recipes will appear here after they move out of weekly folders.</p>
+            )}
+          </form>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function WeekMenuPreview({ rows, targetDay }) {
+  return (
+    <div className="week-menu-preview" aria-label="Weekly menu preview">
+      <div className="week-menu-preview-header">
+        <h4>Week Preview</h4>
+        <span className="pill">{rows.filter(hasMeal).length} planned</span>
+      </div>
+      <div className="week-menu-preview-list">
+        {rows.map((row) => {
+          const isTarget = row.Day === targetDay;
+          const meal = row.Meal || "Open";
+          return (
+            <div className={`week-menu-preview-item ${isTarget ? "pending" : ""} ${row.Meal ? "filled" : ""}`} key={row.Day || meal}>
+              <span className="week-menu-preview-day">{row.Day || "Day"}</span>
+              <span className="week-menu-preview-meal">{meal}</span>
+              {row.Protein ? <span className="week-menu-preview-meta">{row.Protein}</span> : null}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1000,6 +1283,155 @@ async function loadData() {
   return response.json();
 }
 
+function mergeCookbookWeeks(markdownWeeks, workingWeeks, archiveDocs) {
+  const markdownIds = new Set(markdownWeeks.map((week) => week.id));
+  const appWeeks = workingWeeks
+    .filter((week) => !markdownIds.has(week.id))
+    .map((week) => workingWeekToAppWeek(week, archiveDocs));
+
+  return [...markdownWeeks, ...appWeeks].sort(compareWeeks);
+}
+
+function workingWeekToAppWeek(week, archiveDocs) {
+  const menuRows = week.menuRows || [];
+  const recipes = uniqueValues(menuRows.map((row) => row["Recipe path"]).filter(Boolean))
+    .map((path) => archiveDocs.find((doc) => doc.path === path))
+    .filter(Boolean);
+
+  return {
+    id: week.id,
+    isWorkingWeek: true,
+    label: week.label,
+    year: week.year,
+    startDate: week.startDate,
+    endDate: week.endDate,
+    folder: `working-weeks/${week.id}`,
+    packet: {
+      markdown: workingWeekMarkdown(week),
+      path: `working-weeks/${week.id}`,
+      title: week.label,
+      type: "working-week",
+    },
+    recipes,
+    weeklyMenu: menuRows,
+    grocerySections: buildGrocerySectionsFromMenuRows(menuRows, archiveDocs),
+    prepSections: buildPrepSectionsFromMenuRows(menuRows),
+  };
+}
+
+function compareWeeks(first, second) {
+  const firstDate = parseLocalDate(first.startDate);
+  const secondDate = parseLocalDate(second.startDate);
+  if (firstDate && secondDate && firstDate.getTime() !== secondDate.getTime()) {
+    return secondDate - firstDate;
+  }
+  return String(second.id).localeCompare(String(first.id));
+}
+
+function workingWeekMarkdown(week) {
+  const rows = week.menuRows?.filter(hasMeal) || [];
+  const menuTable = rows.map((row) => (
+    `| ${row.Day || ""} | ${row.Meal || ""} | ${row["Recipe file"] || ""} | ${row.Stage || ""} | ${row.Protein || ""} | ${row["Cuisine/flavor"] || ""} |`
+  )).join("\n");
+  return [
+    `# ${week.label}`,
+    "",
+    `Week of: ${week.startDate || "Unscheduled"} through ${week.endDate || "Unscheduled"}`,
+    "Planning status: Working app plan",
+    "",
+    "## Weekly Menu",
+    "",
+    "| Day | Meal | Recipe file | Stage | Protein | Cuisine/flavor |",
+    "|---|---|---|---|---|---|",
+    menuTable || "|  |  |  |  |  |  |",
+  ].join("\n");
+}
+
+function buildGrocerySectionsFromMenuRows(menuRows, archiveDocs) {
+  const grouped = new Map();
+  menuRows.forEach((row) => {
+    const doc = findRecipeDocForMenuRow(row, archiveDocs);
+    if (!doc) {
+      return;
+    }
+    extractIngredientTableRows(doc.markdown).forEach((ingredientRow) => {
+      const item = ingredientRow.Ingredient || ingredientRow.Item || "";
+      if (!item) {
+        return;
+      }
+      const sectionTitle = grocerySectionForItem(item);
+      if (!grouped.has(sectionTitle)) {
+        grouped.set(sectionTitle, { title: sectionTitle, items: [] });
+      }
+      grouped.get(sectionTitle).items.push({
+        Quantity: ingredientRow.Quantity || "",
+        Item: item,
+        "Preferred version/type": ingredientRow["Preferred version/type"] || ingredientRow.Preferred || "",
+        "Acceptable alternatives": ingredientRow["Acceptable alternatives"] || ingredientRow.Alternatives || "",
+        Recipe: doc.title,
+      });
+    });
+  });
+
+  const sectionOrder = [
+    "Produce",
+    "Meat and Seafood",
+    "Dairy and Eggs",
+    "Bakery",
+    "Pantry and Dry Goods",
+    "Sauces, Condiments, and Spices",
+    "Other",
+  ];
+
+  return [...grouped.values()]
+    .map((section) => ({ ...section, items: sortGroceryItems(section.items) }))
+    .sort((first, second) => sectionOrder.indexOf(first.title) - sectionOrder.indexOf(second.title));
+}
+
+function buildPrepSectionsFromMenuRows(menuRows) {
+  const rows = menuRows.filter(hasMeal);
+  if (!rows.length) {
+    return [];
+  }
+
+  return [{
+    title: "Weekly Recipe Prep",
+    markdown: rows.map((row) => [
+      `- [ ] Review and prep ${row.Meal}.`,
+      `  - Ingredients: Use the generated grocery list and recipe ingredient table.`,
+      `  - Instructions: Read the recipe, thaw or purchase the protein, and prep vegetables or sauces that hold well.`,
+      `  - Storage method: Covered containers in refrigerator unless the recipe says otherwise.`,
+      `  - Use-by date: ${row.Day || "Planned cook day"}.`,
+      `  - Meal ownership: ${row.Meal}.`,
+    ].join("\n")).join("\n"),
+  }];
+}
+
+function grocerySectionForItem(item) {
+  const words = new Set(groceryItemWords(item));
+  const hasAny = (values) => values.some((value) => words.has(value));
+
+  if (hasAny(["chicken", "beef", "steak", "pork", "salmon", "turkey", "ham", "shrimp", "fish"])) {
+    return "Meat and Seafood";
+  }
+  if (hasAny(["milk", "cream", "cheese", "yogurt", "egg", "butter", "feta", "mozzarella", "cheddar", "swiss"])) {
+    return "Dairy and Eggs";
+  }
+  if (hasAny(["flatbread", "naan", "bread", "tortilla", "wrap", "bun", "roll", "pita"])) {
+    return "Bakery";
+  }
+  if (hasAny(["salt", "pepper", "cumin", "paprika", "oregano", "coriander", "turmeric", "powder", "seasoning", "spice", "flake"])) {
+    return "Sauces, Condiments, and Spices";
+  }
+  if (hasAny(["rice", "breadcrumb", "panko", "arrowroot", "flour", "sugar", "honey", "oil", "vinegar", "sauce", "mustard", "mayonnaise", "broth", "stock", "peanut", "soy"])) {
+    return "Pantry and Dry Goods";
+  }
+  if (hasAny(["apple", "avocado", "basil", "broccoli", "cabbage", "carrot", "cilantro", "cucumber", "dill", "garlic", "ginger", "herb", "jalapeno", "lemon", "lettuce", "lime", "mint", "mushroom", "onion", "parsley", "pepper", "potato", "radish", "tomato", "zucchini"])) {
+    return "Produce";
+  }
+  return "Other";
+}
+
 function filterDocs(docs, search) {
   return docs.filter((doc) => matchesSearch(`${doc.title} ${doc.summary} ${doc.path}`, search));
 }
@@ -1011,6 +1443,152 @@ function matchesSearch(text, search) {
 
 function hasMeal(row) {
   return Boolean([row.Meal, row["Recipe file"], row.Protein, row["Cuisine/flavor"]].join("").trim());
+}
+
+function archiveRecipeToMenuRow(doc, day) {
+  return {
+    Day: day,
+    Meal: doc.title,
+    "Recipe file": fileNameFromPath(doc.path),
+    "Recipe path": doc.path,
+    Stage: recipeStageFromMarkdown(doc.markdown) || "Stage 2",
+    Protein: planningSummaryValue(doc.markdown, "Protein"),
+    "Cuisine/flavor": planningSummaryValue(doc.markdown, "Cuisine or flavor direction"),
+    "Perishability reason": planningSummaryValue(doc.markdown, "Perishability notes"),
+    Notes: "Added from recipe archive",
+    "Plan source": "archive",
+  };
+}
+
+function createWorkingWeekShell({ startDate, weekNumber, year }) {
+  const normalizedYear = String(year || new Date().getFullYear()).trim();
+  const normalizedWeekNumber = String(Math.max(1, Math.min(53, Number(weekNumber) || 1))).padStart(2, "0");
+  const normalizedStartDate = startDate || getNextPlanningWeekDefaults().startDate;
+  return {
+    endDate: weekEndDate(normalizedStartDate),
+    id: `planning-${normalizedYear}-week-${normalizedWeekNumber}`,
+    label: `${normalizedYear} week ${Number(normalizedWeekNumber)} planning`,
+    menuRows: createBlankMenuRows(buildWeekDayOptions(normalizedStartDate)),
+    startDate: normalizedStartDate,
+    weekNumber: Number(normalizedWeekNumber),
+    year: normalizedYear,
+  };
+}
+
+function createBlankMenuRows(dayOptions) {
+  return dayOptions.map((day) => ({
+    Day: day,
+    Meal: "",
+    "Recipe file": "",
+    Stage: "",
+    Protein: "",
+    "Cuisine/flavor": "",
+    "Perishability reason": "",
+    Notes: "",
+  }));
+}
+
+function getNextPlanningWeekDefaults() {
+  const today = startOfLocalDay(new Date());
+  const nextSunday = new Date(today);
+  const daysUntilSunday = (7 - today.getDay()) % 7 || 7;
+  nextSunday.setDate(today.getDate() + daysUntilSunday);
+  return {
+    startDate: formatInputDate(nextSunday),
+    weekNumber: isoWeekNumber(nextSunday),
+    year: nextSunday.getFullYear(),
+  };
+}
+
+function buildWeekDayOptions(startDate) {
+  const start = parseLocalDate(startDate);
+  if (!start) {
+    return ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  }
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    return `${date.toLocaleDateString(undefined, { weekday: "long" })}, ${date.toLocaleDateString(undefined, { month: "long", day: "numeric" })}`;
+  });
+}
+
+function workingWeekDayOptions(week) {
+  const existingDays = (week.menuRows || []).map((row) => row.Day).filter(Boolean);
+  return existingDays.length ? existingDays : buildWeekDayOptions(week.startDate);
+}
+
+function weekEndDate(startDate) {
+  const start = parseLocalDate(startDate);
+  if (!start) {
+    return "";
+  }
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  return formatInputDate(end);
+}
+
+function formatInputDate(date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function isoWeekNumber(date) {
+  const normalized = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNumber = normalized.getUTCDay() || 7;
+  normalized.setUTCDate(normalized.getUTCDate() + 4 - dayNumber);
+  const yearStart = new Date(Date.UTC(normalized.getUTCFullYear(), 0, 1));
+  return Math.ceil((((normalized - yearStart) / 86400000) + 1) / 7);
+}
+
+function uniqueValues(values) {
+  return [...new Set(values)];
+}
+
+function replaceMenuRowForDay(rows, nextRow) {
+  const nextRows = rows.length ? [...rows] : [];
+  const existingIndex = nextRows.findIndex((row) => row.Day === nextRow.Day);
+  if (existingIndex === -1) {
+    nextRows.push(nextRow);
+    return nextRows;
+  }
+  nextRows[existingIndex] = { ...nextRows[existingIndex], ...nextRow };
+  return nextRows;
+}
+
+function findRecipeDocForMenuRow(row, docs) {
+  const recipePath = row["Recipe path"] || "";
+  if (recipePath) {
+    const byPath = docs.find((candidate) => candidate.path === recipePath);
+    if (byPath) {
+      return byPath;
+    }
+  }
+
+  const recipeFile = row["Recipe file"] || "";
+  return docs.find((candidate) => recipeFile && candidate.path.endsWith(`/${recipeFile}`)) || null;
+}
+
+function fileNameFromPath(value) {
+  return String(value || "").split("/").pop() || "";
+}
+
+function planningSummaryValue(markdown, label) {
+  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = (markdown || "").match(new RegExp(`^-\\s+${escapedLabel}:\\s*(.+)$`, "im"));
+  return match ? match[1].trim() : "";
+}
+
+function recipeStageFromMarkdown(markdown) {
+  const match = (markdown || "").match(/^Status:\s*(.+)$/im);
+  if (!match) {
+    return "";
+  }
+  const stage = match[1].match(/Stage\s+\d+/i);
+  return stage ? stage[0].replace(/\bstage\b/i, "Stage") : "";
 }
 
 function groceryItemKey(week, section, item, sectionIndex, itemIndex) {
@@ -1043,6 +1621,12 @@ function normalizeHeader(header) {
 }
 
 function extractIngredientRows(markdown) {
+  return extractIngredientTableRows(markdown).map((row) => ({
+    ingredient: row.Ingredient || row.Item || "",
+  })).filter((row) => row.ingredient);
+}
+
+function extractIngredientTableRows(markdown) {
   const lines = (markdown || "").replace(/\r\n/g, "\n").split("\n");
   const ingredientsHeading = lines.findIndex((line) => /^##\s+Ingredients\s*$/.test(line.trim()));
   if (ingredientsHeading === -1) {
@@ -1065,7 +1649,7 @@ function extractIngredientRows(markdown) {
       while (index < lines.length && lines[index].includes("|") && lines[index].trim()) {
         const values = splitMarkdownRow(lines[index]);
         if (values[ingredientIndex]) {
-          rows.push({ ingredient: values[ingredientIndex] });
+          rows.push(Object.fromEntries(headers.map((header, headerIndex) => [header, values[headerIndex] || ""])));
         }
         index += 1;
       }
@@ -1123,9 +1707,9 @@ function getDefaultWeekId(weeks) {
   return mostRecentPastWeek?.id || weeks[0].id;
 }
 
-function getDefaultRecipeForWeek(week) {
+function getDefaultRecipeForWeek(week, menuRows = week.weeklyMenu, docs = week.recipes) {
   const today = startOfLocalDay(new Date());
-  const datedRows = week.weeklyMenu
+  const datedRows = menuRows
     .filter(hasMeal)
     .map((row, index) => ({
       row,
@@ -1139,14 +1723,22 @@ function getDefaultRecipeForWeek(week) {
   const fallbackRows = datedRows.sort((a, b) => b.date - a.date);
 
   for (const entry of [...nextRows, ...fallbackRows]) {
-    const recipeFile = entry.row["Recipe file"] || "";
-    const doc = week.recipes.find((candidate) => recipeFile && candidate.path.endsWith(`/${recipeFile}`));
+    const doc = findRecipeDocForMenuRow(entry.row, docs);
     if (doc) {
       return doc;
     }
   }
 
   return null;
+}
+
+function formatWeekDayOption(week, index) {
+  const startDate = parseLocalDate(week.startDate);
+  if (!startDate) {
+    return `Day ${index + 1}`;
+  }
+  const date = addDays(startDate, index);
+  return date.toLocaleDateString([], { month: "long", day: "numeric", weekday: "long" });
 }
 
 function parseMenuRowDate(row, week, index) {

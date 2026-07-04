@@ -76,11 +76,25 @@ async function firebaseClient() {
 
   const app = initializeApp(config);
   await signInAnonymously(getAuth(app));
-  return getFirestore(app);
+  return { app, db: getFirestore(app) };
 }
 
 function migrationPayload(week, kind) {
   const now = new Date().toISOString();
+  if (kind === "week") {
+    return {
+      endDate: week.endDate || "",
+      folder: week.folder || "",
+      label: week.label || week.id,
+      menuRows: week.weeklyMenu || [],
+      migratedAt: now,
+      planSource: "firebase",
+      startDate: week.startDate || "",
+      sourcePacketPath: week.packet.path,
+      year: week.year || "",
+    };
+  }
+
   if (kind === "grocery") {
     return {
       listSource: "firebase",
@@ -98,6 +112,31 @@ function migrationPayload(week, kind) {
   };
 }
 
+function weekIndexPayload(existingWeeks, markdownWeeks) {
+  const byId = new Map((existingWeeks || []).map((week) => [week.id, week]));
+  markdownWeeks.forEach((week) => {
+    byId.set(week.id, {
+      ...(byId.get(week.id) || {}),
+      endDate: week.endDate || "",
+      folder: week.folder || "",
+      id: week.id,
+      label: week.label || week.id,
+      menuRows: week.weeklyMenu || [],
+      migratedAt: new Date().toISOString(),
+      planSource: "markdown-migration",
+      recipePaths: week.recipes.map((recipe) => recipe.path),
+      sourcePacketPath: week.packet.path,
+      startDate: week.startDate || "",
+      year: week.year || "",
+    });
+  });
+
+  return {
+    migratedAt: new Date().toISOString(),
+    weeks: [...byId.values()].sort((first, second) => String(second.id).localeCompare(String(first.id))),
+  };
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const data = loadCookbookData();
@@ -109,27 +148,52 @@ async function main() {
 
   if (args.dryRun) {
     for (const week of weeks) {
-      console.log(`Would migrate ${week.id}: ${week.grocerySections.length} grocery section(s), ${week.prepSections.length} prep section(s).`);
+      console.log(`Would migrate ${week.id}: ${week.weeklyMenu.length} menu row(s), ${week.grocerySections.length} grocery section(s), ${week.prepSections.length} prep section(s).`);
     }
+    console.log(`Would update workingWeeks/index with ${weeks.length} markdown week(s).`);
     return;
   }
 
-  const db = await firebaseClient();
-  const { doc, setDoc } = await import("firebase/firestore");
+  const { app, db } = await firebaseClient();
+  const [{ deleteApp }, { doc, getDoc, setDoc, terminate }] = await Promise.all([
+    import("firebase/app"),
+    import("firebase/firestore"),
+  ]);
   const householdId = process.env.VITE_FIREBASE_HOUSEHOLD_ID || "family";
 
-  for (const week of weeks) {
+  try {
+    const weekIndexRef = doc(db, "households", householdId, "workingWeeks", "index");
+    const existingWeekIndex = await getDoc(weekIndexRef).catch(() => null);
+    const existingWeeks = existingWeekIndex && existingWeekIndex.exists() ? existingWeekIndex.data().weeks || [] : [];
+
     await setDoc(
-      doc(db, "households", householdId, "groceryWeeks", week.id),
-      migrationPayload(week, "grocery"),
+      weekIndexRef,
+      weekIndexPayload(existingWeeks, weeks),
       { merge: true }
     );
-    await setDoc(
-      doc(db, "households", householdId, "prepWeeks", week.id),
-      migrationPayload(week, "prep"),
-      { merge: true }
-    );
-    console.log(`Migrated ${week.id}: ${week.grocerySections.length} grocery section(s), ${week.prepSections.length} prep section(s).`);
+
+    for (const week of weeks) {
+      await setDoc(
+        doc(db, "households", householdId, "weeklyPlans", week.id),
+        migrationPayload(week, "week"),
+        { merge: true }
+      );
+      await setDoc(
+        doc(db, "households", householdId, "groceryWeeks", week.id),
+        migrationPayload(week, "grocery"),
+        { merge: true }
+      );
+      await setDoc(
+        doc(db, "households", householdId, "prepWeeks", week.id),
+        migrationPayload(week, "prep"),
+        { merge: true }
+      );
+      console.log(`Migrated ${week.id}: ${week.weeklyMenu.length} menu row(s), ${week.grocerySections.length} grocery section(s), ${week.prepSections.length} prep section(s).`);
+    }
+    console.log(`Updated workingWeeks/index with ${weeks.length} markdown week(s).`);
+  } finally {
+    await terminate(db).catch(() => {});
+    await deleteApp(app).catch(() => {});
   }
 }
 

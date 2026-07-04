@@ -26,7 +26,7 @@ Folder: `weekly-plans/2026/week-[number]/`
 
 ## Recipe Status
 
-Stage 1 drafts for this week should live in this same weekly folder. Stage 2 keeper recipes should link to their archive location.
+Stage 1 drafts should usually live in `recipe-archive/drafts/` and be selected into this weekly menu from the archive. Week-local drafts should be used only when explicitly requested. Stage 2 keeper recipes should link to their archive location.
 
 | Recipe | Stage 1 draft or Stage 2 keeper | Test goal | Review needed |
 |---|---|---|---|

@@ -79,6 +79,63 @@
   margin-top: 3px;
 }
 
+.week-planner {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.week-planner h3,
+.week-planner p {
+  margin: 0;
+}
+
+.week-planner p {
+  color: var(--muted);
+  font-size: 14px;
+  margin-top: 3px;
+}
+
+.week-planner-controls {
+  align-items: end;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(220px, 1fr) minmax(180px, 260px) auto;
+}
+
+.week-planner label {
+  display: grid;
+  font-weight: 700;
+  gap: 6px;
+}
+
+.week-planner input,
+.week-planner select {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  font: inherit;
+  min-height: 42px;
+  padding: 9px 10px;
+  width: 100%;
+}
+
+.recipe-week-planner-controls {
+  grid-template-columns: minmax(220px, 1.4fr) minmax(150px, 0.8fr) repeat(3, minmax(92px, 0.45fr)) minmax(170px, 0.9fr) auto;
+}
+
+.week-planner-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.week-planner-empty {
+  background: #f8faf9;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+}
+
 .recipe-feedback label {
   display: grid;
   font-weight: 700;
@@ -334,6 +391,119 @@
   z-index: 35;
 }
 
+.week-fab {
+  align-items: center;
+  background: var(--blue);
+  border: 1px solid var(--blue);
+  border-radius: 999px;
+  bottom: 22px;
+  box-shadow: 0 14px 32px rgba(23, 33, 38, 0.24);
+  color: #ffffff;
+  cursor: pointer;
+  display: flex;
+  font-size: 34px;
+  font-weight: 700;
+  height: 58px;
+  justify-content: center;
+  line-height: 1;
+  position: fixed;
+  right: 24px;
+  width: 58px;
+  z-index: 35;
+}
+
+.week-dialog {
+  max-width: 620px;
+}
+
+.week-dialog-grid {
+  grid-template-columns: minmax(90px, 1fr) minmax(90px, 1fr) minmax(150px, 1.4fr);
+}
+
+.dialog-help {
+  color: var(--muted);
+  font-size: 14px;
+  margin: -4px 0 0;
+}
+
+.week-planner-status {
+  bottom: 92px;
+  box-shadow: 0 10px 24px rgba(23, 33, 38, 0.16);
+  max-width: min(320px, calc(100vw - 32px));
+  position: fixed;
+  right: 24px;
+  z-index: 34;
+}
+
+.week-menu-preview {
+  background: #f8faf9;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.week-menu-preview-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.week-menu-preview-header h4 {
+  font-size: 14px;
+  margin: 0;
+}
+
+.week-menu-preview-list {
+  display: grid;
+  gap: 7px;
+}
+
+.week-menu-preview-item {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 3px;
+  grid-template-columns: minmax(116px, 0.8fr) minmax(0, 1.2fr);
+  min-width: 0;
+  padding: 8px 10px;
+}
+
+.week-menu-preview-item.pending {
+  border-color: var(--blue);
+  box-shadow: inset 3px 0 0 var(--blue);
+}
+
+.week-menu-preview-item:not(.filled) .week-menu-preview-meal {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.week-menu-preview-day {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.week-menu-preview-meal {
+  font-size: 13px;
+  font-weight: 700;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.week-menu-preview-meta {
+  color: var(--muted);
+  font-size: 12px;
+  grid-column: 2;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .dialog-backdrop {
   align-items: center;
   background: rgba(23, 33, 38, 0.42);
@@ -478,6 +648,20 @@
     width: 100%;
   }
 
+  .week-planner-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .week-planner-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .week-planner-actions .primary-button,
+  .week-planner-actions .quiet-button {
+    width: 100%;
+  }
+
   .prep-toolbar {
     align-items: stretch;
     flex-direction: column;
@@ -499,6 +683,18 @@
     width: 56px;
   }
 
+  .week-fab {
+    bottom: 18px;
+    height: 56px;
+    right: 16px;
+    width: 56px;
+  }
+
+  .week-planner-status {
+    bottom: 88px;
+    right: 16px;
+  }
+
   .dialog-backdrop {
     align-items: flex-end;
     padding: 10px;
@@ -511,6 +707,18 @@
 
   .manual-grocery-grid {
     grid-template-columns: 1fr;
+  }
+
+  .week-dialog-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .week-menu-preview-item {
+    grid-template-columns: 1fr;
+  }
+
+  .week-menu-preview-meta {
+    grid-column: auto;
   }
 
   .dialog-actions {

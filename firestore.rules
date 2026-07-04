@@ -14,6 +14,14 @@ service cloud.firestore {
       allow read, write: if isFamilyHousehold(householdId);
     }
 
+    match /households/{householdId}/weeklyPlans/{weekId} {
+      allow read, write: if isFamilyHousehold(householdId);
+    }
+
+    match /households/{householdId}/workingWeeks/{docId} {
+      allow read, write: if isFamilyHousehold(householdId);
+    }
+
     match /households/{householdId}/recipeFeedback/{recipeId} {
       allow read, write: if isFamilyHousehold(householdId);
     }

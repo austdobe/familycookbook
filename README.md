@@ -4,9 +4,9 @@ This is a Markdown-based family cookbook and meal planning system. It is designe
 
 ## Core Workflow
 
-1. Create a weekly folder under `weekly-plans/2026/`, such as `weekly-plans/2026/week-28/`.
-2. Add every new recipe for that week as a Stage 1 draft inside the weekly folder.
-3. Use those week-local Stage 1 drafts to build the weekly packet, grocery list, and prep guide.
+1. Create new generated recipes as Stage 1 drafts in `recipe-archive/drafts/`.
+2. Use the Recipes tab in the app to create or edit a planning week from archived draft recipes.
+3. Use the generated working week to build the weekly menu, grocery list, and prep guide.
 4. Cook the meal and complete a recipe review.
 5. Move approved recipes into the archive, adding family ratings, version notes, and any changes.
 6. Promote the recipe to Stage 2 only if the family would make it again.
@@ -22,8 +22,8 @@ This is a Markdown-based family cookbook and meal planning system. It is designe
 ## Main Folders
 
 - `templates/` - reusable Markdown templates for recipes, menus, grocery lists, prep guides, and reviews.
-- `weekly-plans/2026/week-[number]/` - weekly planning packet plus that week's Stage 1 draft recipes.
-- `recipe-archive/drafts/` - optional holding area for tested drafts that are not ready for Stage 2 but should no longer live in a weekly work folder.
+- `weekly-plans/2026/week-[number]/` - committed weekly packets and any explicit week-local files.
+- `recipe-archive/drafts/` - default home for generated Stage 1 draft recipes before review or promotion.
 - `recipe-archive/promoted/` - Stage 2 recipes before category filing or for cross-category keeper lists.
 - `recipe-archive/breakfast/`, `lunches/`, `beef/`, `chicken/`, `pork/`, `seafood/`, `sides/`, `sauces/`, `desserts/` - organized promoted recipes.
 - `planning/` - standing notes, rules, backlog ideas, substitutions, pantry notes, and lessons learned.
@@ -33,7 +33,7 @@ This is a Markdown-based family cookbook and meal planning system. It is designe
 
 ### Stage 1: Draft Recipe
 
-Stage 1 recipes are planning drafts. They live in the weekly folder while they are being tested. They need enough detail to shop and cook once, but they do not need binder-level polish.
+Stage 1 recipes are planning drafts. New generated drafts live in `recipe-archive/drafts/` so they can be reused across working weekly menus. They need enough detail to shop and cook once, but they do not need binder-level polish.
 
 Required sections:
 
@@ -152,9 +152,9 @@ npm.cmd run deploy:pages
 
 That command builds with the `/familycookbook/` base path and pushes the generated `dist/` contents to the `gh-pages` branch. No GitHub Actions secrets are required.
 
-### Shared Grocery State
+### Shared Firebase State
 
-The React app can use Firebase for shared grocery state. Copy `.env.example` to `.env` and fill in the Firebase web app values:
+The React app can use Firebase for shared weekly planning, grocery, prep, and recipe feedback state. Copy `.env.example` to `.env` and fill in the Firebase web app values:
 
 ```text
 VITE_FIREBASE_API_KEY=
@@ -166,7 +166,21 @@ VITE_FIREBASE_APP_ID=
 VITE_FIREBASE_HOUSEHOLD_ID=family
 ```
 
-If Firebase is not configured, grocery checks and manual grocery additions fall back to this device only.
+If Firebase is not configured, working weeks, grocery checks, manual grocery additions, prep checks, and recipe feedback fall back to this device only.
+
+Deploy Firestore rules after changing `firestore.rules`:
+
+```text
+firebase.cmd deploy --only firestore:rules
+```
+
+Seed Markdown weekly packets into Firebase:
+
+```text
+npm.cmd run migrate:firebase
+```
+
+The migration writes Markdown week menus, grocery sections, prep sections, and the week picker index into Firestore while preserving app-created planning weeks.
 
 ### Apply Recipe Feedback To Markdown
 
