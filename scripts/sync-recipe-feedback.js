@@ -114,7 +114,9 @@ async function main() {
   console.log(`${args.dryRun ? "Would update" : "Updated"} ${updated} recipe file(s).`);
 }
 
-main().catch((error) => {
-  console.error(`Sync feedback failed: ${error.message}`);
-  process.exit(1);
-});
+main()
+  .then(() => process.exit(0))
+  .catch((error) => {
+    console.error(`Sync feedback failed: ${error.message}`);
+    process.exit(1);
+  });

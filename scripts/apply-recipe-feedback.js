@@ -64,6 +64,9 @@ function ensureSection(markdown, heading, initialBody) {
   if (new RegExp(`^##\\s+${escapeRegExp(heading)}\\s*$`, "m").test(markdown)) {
     return markdown;
   }
+  if (!initialBody.trim()) {
+    return `${markdown.trim()}\n\n## ${heading}\n`;
+  }
   return `${markdown.trim()}\n\n## ${heading}\n\n${initialBody.trim()}\n`;
 }
 
@@ -80,7 +83,7 @@ function applyFeedbackToMarkdown(markdown, feedback) {
 }
 
 function appendFamilyNotes(markdown, feedback) {
-  markdown = ensureSection(markdown, "Family Notes", "- ");
+  markdown = ensureSection(markdown, "Family Notes", "");
   const notes = [];
 
   if (feedback.rating) {
@@ -97,9 +100,14 @@ function appendFamilyNotes(markdown, feedback) {
     return markdown;
   }
 
+  const newNotes = notes.filter((note) => !markdown.includes(note));
+  if (!newNotes.length) {
+    return markdown;
+  }
+
   return markdown.replace(
     /(^##\s+Family Notes\s*$)/m,
-    `$1\n\n${notes.join("\n")}`
+    `$1\n\n${newNotes.join("\n")}`
   );
 }
 
@@ -114,6 +122,10 @@ function appendVersionHistory(markdown, feedback) {
   const change = feedback.change || [feedback.notes, ingredientSummary].filter(Boolean).join("; ") || "Added family feedback from app";
   const result = feedback.result || (feedback.rating ? `Family rating: ${feedback.rating}` : "Needs review");
   const row = `| ${today()} | ${version} | ${escapeTableCell(change)} | ${escapeTableCell(result)} |`;
+
+  if (markdown.includes(row)) {
+    return markdown;
+  }
 
   markdown = ensureSection(
     markdown,
@@ -168,7 +180,9 @@ function applyIngredientChanges(markdown, ingredientChanges) {
   let rows = table.rows.map((row) => ({ ...row }));
   for (const change of changes) {
     if (change.type === "add") {
-      rows.push(rowFromChange(table.headers, change));
+      if (!rows.some((row) => normalize(row.Ingredient) === normalize(change.ingredient))) {
+        rows.push(rowFromChange(table.headers, change));
+      }
       continue;
     }
 

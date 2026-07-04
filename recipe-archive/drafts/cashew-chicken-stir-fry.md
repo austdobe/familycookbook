@@ -72,3 +72,14 @@ Review file:
 - Target archive folder: `recipe-archive/chicken/`
 - Family rating to add after cooking:
 - Version notes to preserve:
+
+## Family Notes
+
+- 2026-07-04 rating: 5/5
+- 2026-07-04 notes: All loved this one. Definitely a keeper.
+
+## Version History
+
+| Date | Version | Change | Result |
+|---|---|---|---|
+| 2026-07-04 | 2.0 | All loved this one. Definitely a keeper. | Family rating: 5/5 |
