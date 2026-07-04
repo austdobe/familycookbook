@@ -375,18 +375,6 @@
   display: none;
 }
 
-.grocery-expand-button {
-  background: #ffffff;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--teal-strong);
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 700;
-  min-height: 30px;
-  padding: 5px 9px;
-}
-
 .grocery-fab {
   align-items: center;
   background: var(--teal);
@@ -592,13 +580,22 @@
     padding: 10px 12px;
   }
 
+  .grocery-table tr.grocery-can-expand {
+    cursor: pointer;
+  }
+
+  .grocery-table tr.grocery-can-expand:focus-visible {
+    outline: 2px solid var(--blue);
+    outline-offset: 2px;
+  }
+
   .grocery-mobile-summary {
     align-items: center;
     border-bottom: 0;
     display: flex;
     gap: 10px;
     grid-column: 1;
-    justify-content: space-between;
+    justify-content: flex-start;
     min-width: 0;
     order: 1;
     padding: 0;

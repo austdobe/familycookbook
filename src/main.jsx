@@ -23,7 +23,7 @@ const views = [
   ["prep", "Prep"],
 ];
 const baseUrl = import.meta.env.BASE_URL;
-const appVersion = "0.1.26";
+const appVersion = "0.1.27";
 
 function App() {
   const [data, setData] = useState(null);
@@ -786,8 +786,22 @@ function GrocerySection({ checkedKeys, ingredientMode, onEditManual, onRemoveMan
             {section.items.map((item) => {
               const checked = checkedKeys.has(item._key);
               const expanded = ingredientMode === "detailed" || expandedKeys.includes(item._key);
+              const canToggleDetails = ingredientMode === "simple";
               return (
-                <tr className={`${checked ? "grocery-checked" : ""} ${expanded ? "grocery-expanded" : ""}`} key={item._key}>
+                <tr
+                  aria-expanded={canToggleDetails ? expanded : undefined}
+                  className={`${checked ? "grocery-checked" : ""} ${expanded ? "grocery-expanded" : ""} ${canToggleDetails ? "grocery-can-expand" : ""}`}
+                  key={item._key}
+                  onDoubleClick={() => canToggleDetails && toggleExpanded(item._key)}
+                  onKeyDown={(event) => {
+                    if (!canToggleDetails || (event.key !== "Enter" && event.key !== " ")) {
+                      return;
+                    }
+                    event.preventDefault();
+                    toggleExpanded(item._key);
+                  }}
+                  tabIndex={canToggleDetails ? 0 : undefined}
+                >
                   <td className="grocery-mobile-summary">
                     <div className="grocery-mobile-main">
                       <span className="grocery-mobile-item">{item.Item || ""}</span>
@@ -795,16 +809,6 @@ function GrocerySection({ checkedKeys, ingredientMode, onEditManual, onRemoveMan
                         <span className="grocery-mobile-quantity">{formatGroceryCardQuantity(item.Quantity, unitMode)}</span>
                       ) : null}
                     </div>
-                    {ingredientMode === "simple" ? (
-                      <button
-                        aria-expanded={expanded}
-                        className="grocery-expand-button"
-                        onClick={() => toggleExpanded(item._key)}
-                        type="button"
-                      >
-                        {expanded ? "Less" : "Details"}
-                      </button>
-                    ) : null}
                   </td>
                   <td className="check-column grocery-check-cell" data-label="Have">
                     <label className="grocery-check-control">
@@ -812,6 +816,7 @@ function GrocerySection({ checkedKeys, ingredientMode, onEditManual, onRemoveMan
                         checked={checked}
                         className="grocery-check"
                         onChange={(event) => onToggle(item, event.target.checked)}
+                        onDoubleClick={(event) => event.stopPropagation()}
                         type="checkbox"
                       />
                       <span>{checked ? "Have it" : "Need it"}</span>
@@ -830,8 +835,8 @@ function GrocerySection({ checkedKeys, ingredientMode, onEditManual, onRemoveMan
                   <td className={`check-column grocery-edit-cell ${item._source === "manual" ? "" : "empty-edit"}`} data-label="Edit">
                     {item._source === "manual" ? (
                       <div className="grocery-row-actions">
-                        <button className="mini-button neutral" onClick={() => onEditManual(item)} type="button">Edit</button>
-                        <button className="mini-button" onClick={() => onRemoveManual(item)} type="button">Remove</button>
+                        <button className="mini-button neutral" onClick={() => onEditManual(item)} onDoubleClick={(event) => event.stopPropagation()} type="button">Edit</button>
+                        <button className="mini-button" onClick={() => onRemoveManual(item)} onDoubleClick={(event) => event.stopPropagation()} type="button">Remove</button>
                       </div>
                     ) : null}
                   </td>
