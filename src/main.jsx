@@ -23,7 +23,7 @@ const views = [
   ["prep", "Prep"],
 ];
 const baseUrl = import.meta.env.BASE_URL;
-const appVersion = "0.1.30";
+const appVersion = "0.1.31";
 
 function App() {
   const [data, setData] = useState(null);
