@@ -1,4 +1,4 @@
-const CACHE_NAME = "family-cookbook-0.1.29";
+const CACHE_NAME = "family-cookbook-0.1.30";
 const APP_SHELL = [
   "./",
   "./index.html",

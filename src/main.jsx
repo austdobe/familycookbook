@@ -23,7 +23,7 @@ const views = [
   ["prep", "Prep"],
 ];
 const baseUrl = import.meta.env.BASE_URL;
-const appVersion = "0.1.29";
+const appVersion = "0.1.30";
 
 function App() {
   const [data, setData] = useState(null);
@@ -944,7 +944,29 @@ function ArchiveView({
   unitMode,
   workingWeeks,
 }) {
-  const selected = docs.find((doc) => doc.id === activeDocId) || docs[0] || null;
+  const directories = useMemo(() => buildArchiveDirectories(docs), [docs]);
+  const [selectedDirectoryId, setSelectedDirectoryId] = useState("");
+  const activeDirectoryId = directories.some((directory) => directory.id === selectedDirectoryId)
+    ? selectedDirectoryId
+    : directories[0]?.id || "";
+  const directoryDocs = directories.find((directory) => directory.id === activeDirectoryId)?.docs || [];
+  const selected = directoryDocs.find((doc) => doc.id === activeDocId) || directoryDocs[0] || null;
+
+  useEffect(() => {
+    if (!activeDocId) {
+      return;
+    }
+    const activeDirectory = directories.find((directory) => directory.docs.some((doc) => doc.id === activeDocId));
+    if (activeDirectory) {
+      setSelectedDirectoryId(activeDirectory.id);
+    }
+  }, [activeDocId, directories]);
+
+  useEffect(() => {
+    if (activeDirectoryId && activeDirectoryId !== selectedDirectoryId) {
+      setSelectedDirectoryId(activeDirectoryId);
+    }
+  }, [activeDirectoryId, selectedDirectoryId]);
 
   return (
     <div className="stack">
@@ -955,16 +977,34 @@ function ArchiveView({
           workingWeeks={workingWeeks}
         />
       <div className="split-view">
-        <div className="folder-tree">
-        {docs.length ? (
-          <FolderTree
-            activeDocId={activeDocId}
-            node={buildFolderTree(docs)}
-            onSelect={setActiveDocId}
-          />
-        ) : (
-          <div className="empty">No archived recipes yet. Approved recipes will appear here after they move out of weekly folders.</div>
-        )}
+        <div className="archive-browser">
+          {directories.length ? (
+            <>
+              <div className="archive-directory-list" aria-label="Recipe archive directories">
+                {directories.map((directory) => (
+                  <button
+                    className={`archive-directory-button ${directory.id === activeDirectoryId ? "active" : ""}`}
+                    key={directory.id}
+                    onClick={() => {
+                      setSelectedDirectoryId(directory.id);
+                      setActiveDocId(directory.docs[0]?.id || "");
+                    }}
+                    type="button"
+                  >
+                    <span>{directory.label}</span>
+                    <small>{directory.docs.length} recipe{directory.docs.length === 1 ? "" : "s"}</small>
+                  </button>
+                ))}
+              </div>
+              <div className="archive-recipe-list" aria-label="Recipes in selected directory">
+                {directoryDocs.map((doc) => (
+                  <ArchiveRecipeButton activeDocId={selected?.id || activeDocId} doc={doc} key={doc.id} onSelect={setActiveDocId} />
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="empty">No archived recipes yet. Approved recipes will appear here after they move out of weekly folders.</div>
+          )}
         </div>
         <div className="recipe-reader">
           <div className="reader-toolbar">
@@ -1239,33 +1279,6 @@ function WeekMenuPreview({ onSelectDay, rows, targetDay }) {
         })}
       </div>
     </div>
-  );
-}
-
-function FolderTree({ activeDocId, depth = 0, node, onSelect }) {
-  const folders = [...node.folders.values()].sort((a, b) => a.name.localeCompare(b.name));
-  const docs = node.docs.sort((a, b) => a.title.localeCompare(b.title));
-
-  if (depth === 0) {
-    return (
-      <>
-        {folders.map((folder) => <FolderTree activeDocId={activeDocId} depth={1} key={folder.name} node={folder} onSelect={onSelect} />)}
-        {docs.map((doc) => <ArchiveRecipeButton activeDocId={activeDocId} doc={doc} key={doc.id} onSelect={onSelect} />)}
-      </>
-    );
-  }
-
-  return (
-    <details className="folder-section" open>
-      <summary>
-        <span>{formatFolderName(node.name)}</span>
-        <span className="folder-count">{countFolderDocs(node)}</span>
-      </summary>
-      <div className="folder-contents">
-        {folders.map((folder) => <FolderTree activeDocId={activeDocId} depth={depth + 1} key={folder.name} node={folder} onSelect={onSelect} />)}
-        {docs.map((doc) => <ArchiveRecipeButton activeDocId={activeDocId} doc={doc} key={doc.id} onSelect={onSelect} />)}
-      </div>
-    </details>
   );
 }
 
@@ -2196,32 +2209,30 @@ function prepTaskKey(week, section, task) {
   return [week.id, section.title, task.index, task.title].join("|");
 }
 
-function buildFolderTree(docs) {
-  const root = { name: "Recipe Archive", folders: new Map(), docs: [] };
+function buildArchiveDirectories(docs) {
+  const directories = new Map();
   docs.forEach((doc) => {
     const parts = doc.path.split("/");
     const fileName = parts.pop();
     let folderParts = parts;
     if (folderParts[0] === "recipe-archive") {
       folderParts = folderParts.slice(1);
-    } else if (folderParts[0] === "recipes") {
-      folderParts = ["recipes", ...folderParts.slice(1)];
     }
-
-    let node = root;
-    folderParts.forEach((part) => {
-      if (!node.folders.has(part)) {
-        node.folders.set(part, { name: part, folders: new Map(), docs: [] });
-      }
-      node = node.folders.get(part);
-    });
-    node.docs.push({ ...doc, fileName });
+    const id = folderParts.join("/") || "root";
+    const label = folderParts.length ? folderParts.map(formatFolderName).join(" / ") : "Recipe Archive";
+    if (!directories.has(id)) {
+      directories.set(id, { docs: [], id, label });
+    }
+    directories.get(id).docs.push({ ...doc, fileName });
   });
-  return root;
-}
 
-function countFolderDocs(node) {
-  return node.docs.length + [...node.folders.values()].reduce((total, folder) => total + countFolderDocs(folder), 0);
+  return [...directories.values()]
+    .map((directory) => ({
+      ...directory,
+      docs: directory.docs.sort((a, b) => a.title.localeCompare(b.title)),
+    }))
+    .filter((directory) => directory.docs.length)
+    .sort((a, b) => a.label.localeCompare(b.label));
 }
 
 function formatFolderName(value) {
