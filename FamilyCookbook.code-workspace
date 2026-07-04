@@ -1,0 +1,24 @@
+{
+  "folders": [
+    {
+      "path": "."
+    }
+  ],
+  "settings": {
+    "files.associations": {
+      "*.md": "markdown"
+    },
+    "markdown.preview.breaks": true,
+    "editor.wordWrap": "on",
+    "files.exclude": {
+      "**/.DS_Store": true
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      "yzhang.markdown-all-in-one",
+      "davidanson.vscode-markdownlint"
+    ]
+  }
+}
+

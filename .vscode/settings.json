@@ -1,0 +1,7 @@
+{
+  "editor.wordWrap": "on",
+  "markdown.preview.breaks": true,
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true
+}
+

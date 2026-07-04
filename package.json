@@ -1,0 +1,10 @@
+{
+  "name": "family-cookbook",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Markdown-first family cookbook with simple JavaScript helpers.",
+  "scripts": {
+    "index": "node scripts/index-recipes.js",
+    "export:pdf": "node scripts/export-pdf.js"
+  }
+}
