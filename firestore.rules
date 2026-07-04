@@ -1,0 +1,21 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isFamilyHousehold(householdId) {
+      return householdId == "family";
+    }
+
+    match /households/{householdId}/groceryWeeks/{weekId} {
+      allow read, write: if isFamilyHousehold(householdId);
+    }
+
+    match /households/{householdId}/prepWeeks/{weekId} {
+      allow read, write: if isFamilyHousehold(householdId);
+    }
+
+    match /households/{householdId}/recipeFeedback/{recipeId} {
+      allow read, write: if isFamilyHousehold(householdId);
+    }
+  }
+}

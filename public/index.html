@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#245c53">
+  <title>Family Cookbook</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/cookbook-icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Cookbook navigation">
+      <div class="brand">
+        <img src="icons/cookbook-icon.svg" alt="" width="40" height="40">
+        <div>
+          <p class="eyebrow">Family</p>
+          <h1>Cookbook</h1>
+        </div>
+      </div>
+
+      <nav class="nav-list" aria-label="Primary">
+        <button class="nav-button active" data-view="week" type="button">Week</button>
+        <button class="nav-button" data-view="recipes" type="button">Recipes</button>
+        <button class="nav-button" data-view="grocery" type="button">Grocery</button>
+        <button class="nav-button" data-view="prep" type="button">Prep</button>
+        <button class="nav-button" data-view="planning" type="button">Planning</button>
+      </nav>
+
+      <label class="field-label" for="week-select">Week</label>
+      <select id="week-select" class="select"></select>
+
+      <label class="field-label" for="search-input">Search</label>
+      <input id="search-input" class="search" type="search" placeholder="Recipe, ingredient, plan">
+
+      <div class="sync-note" id="sync-note"></div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow" id="view-kicker">Weekly plan</p>
+          <h2 id="view-title">Week</h2>
+        </div>
+        <div class="topbar-actions">
+          <button id="install-button" class="quiet-button" type="button" hidden>Install</button>
+          <button id="refresh-button" class="quiet-button" type="button">Refresh</button>
+        </div>
+      </header>
+
+      <section id="content" class="content-panel" aria-live="polite"></section>
+    </main>
+  </div>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

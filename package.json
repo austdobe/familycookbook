@@ -1,10 +1,29 @@
 {
   "name": "family-cookbook",
-  "version": "0.1.0",
+  "version": "0.1.22",
   "private": true,
   "description": "Markdown-first family cookbook with simple JavaScript helpers.",
   "scripts": {
     "index": "node scripts/index-recipes.js",
-    "export:pdf": "node scripts/export-pdf.js"
-  }
+    "export:pdf": "node scripts/export-pdf.js",
+    "build:app": "node scripts/build-app-data.js",
+    "serve:app": "node scripts/serve-app.js",
+    "dev": "node scripts/build-app-data.js && vite --host 0.0.0.0",
+    "build": "node scripts/build-app-data.js && vite build",
+    "build:pages": "node scripts/build-app-data.js && vite build --base=/familycookbook/",
+    "preview": "vite preview --host 0.0.0.0",
+    "app": "npm run build && vite preview --host 0.0.0.0",
+    "deploy:pages": "node scripts/deploy-github-pages.js",
+    "apply:feedback": "node scripts/apply-recipe-feedback.js",
+    "sync:feedback": "node scripts/sync-recipe-feedback.js",
+    "migrate:firebase": "node scripts/migrate-week-lists-to-firebase.js"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.0.0",
+    "firebase": "^12.0.0",
+    "vite": "^7.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {}
 }

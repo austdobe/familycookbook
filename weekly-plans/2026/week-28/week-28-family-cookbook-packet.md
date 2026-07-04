@@ -24,6 +24,7 @@ Planning status: Draft
 | Thursday, July 9 | Greek Chicken Gyro Bowls | `greek-chicken-gyro-bowls.md` | Stage 1 | Chicken thighs | Greek-inspired bowls | Romaine, cucumber, tomato, yogurt, and chicken need freshness | Keep toppings separate |
 | Friday, July 10 | Steakhouse Garlic Butter Steak Bites with Roasted Vegetables and Crispy Baby Potatoes | `steakhouse-garlic-butter-steak-bites-roasted-vegetables-potatoes.md` | Stage 1 | Steak | American steakhouse | Steak, mushrooms, zucchini, and squash should cook before weekend | Inspired by liked steak bites |
 | Saturday, July 11 | Baked Ziti with Italian Sausage and Garlic Sourdough Bread | `baked-ziti-italian-sausage-garlic-sourdough.md` | Stage 1 | Italian sausage | Italian-American comfort food | Sausage and dairy hold well if kept cold | Best leftovers of the week |
+| Ally's Lunch | Lentil Lettuce Wraps | `lentil-lettuce-wraps.md` | Stage 1 | Red lentils | Soy-ginger lettuce wraps | Uses butter lettuce, carrots, onion, garlic, and ginger | Prep filling ahead; assemble wraps day-of |
 
 ## Recipes This Week
 
@@ -38,6 +39,7 @@ New recipes should start as Stage 1 drafts in this weekly folder. After cooking 
 | Greek Chicken Gyro Bowls | `greek-chicken-gyro-bowls.md` | Stage 1 | Test bowl toppings and tzatziki amount | Yes |
 | Steakhouse Garlic Butter Steak Bites with Roasted Vegetables and Crispy Baby Potatoes | `steakhouse-garlic-butter-steak-bites-roasted-vegetables-potatoes.md` | Stage 1 | Test steak bite doneness and potato crispness | Yes |
 | Baked Ziti with Italian Sausage and Garlic Sourdough Bread | `baked-ziti-italian-sausage-garlic-sourdough.md` | Stage 1 | Test sauce-to-pasta ratio and leftovers | Yes |
+| Lentil Lettuce Wraps | `lentil-lettuce-wraps.md` | Stage 1 | Test lunch prep texture and whether lentil-only filling is enough | Yes |
 
 ## Grocery List
 
@@ -79,6 +81,11 @@ Rules:
 | 2 medium | Zucchini | Firm | Extra summer squash | Steak Bites |
 | 2 medium | Summer squash | Firm | Extra zucchini | Steak Bites |
 | 1 bunch | Fresh parsley | Flat-leaf preferred | Curly parsley | Steak Bites, Baked Ziti |
+| 1 | Yellow onion | Medium, firm | White onion | Lentil Lettuce Wraps |
+| 3 cloves | Garlic | Fresh | 1 tsp garlic powder | Lentil Lettuce Wraps |
+| 2 | Carrots | Whole carrots | Matchstick carrots | Lentil Lettuce Wraps |
+| 1 tbsp | Fresh ginger | Firm, smooth skin | 1 tsp ground ginger | Lentil Lettuce Wraps |
+| 1 head | Butter lettuce | Whole leaves, crisp | Romaine leaves | Lentil Lettuce Wraps |
 
 ### Meat and Seafood
 
@@ -127,6 +134,11 @@ Rules:
 | 1 bottle | Olive oil | Extra-virgin or regular | Avocado oil | French Onion Meatballs, Greek Gyro Bowls, Steak Bites, Baked Ziti |
 | 1 bottle | Neutral oil | Avocado or canola oil | Vegetable oil | Jerk Chicken, Mongolian Beef, Malaysian Peanut Chicken, Steak Bites |
 | 1 bag | Granulated sugar | White sugar | Honey | Greek Gyro Bowls |
+| 1 cup | Red lentils | Dry red lentils | Brown lentils, longer cook time | Lentil Lettuce Wraps |
+| 2 cups | Broth | Low-sodium chicken or vegetable broth | Water plus salt | Lentil Lettuce Wraps |
+| 1/4 cup | Low-sodium soy sauce | Low-sodium | Liquid aminos or tamari | Lentil Lettuce Wraps |
+| 1 tbsp | Toasted sesame oil | Toasted | Neutral oil | Lentil Lettuce Wraps |
+| 1 tbsp | Neutral oil | Avocado or canola oil | Vegetable oil | Lentil Lettuce Wraps |
 
 ### Sauces, Condiments, and Spices
 
@@ -200,6 +212,12 @@ Every prep task should include ingredients, instructions, storage method, use-by
   - Storage method: Sauce in jar, vegetables in covered container.
   - Use-by date: Wednesday, July 8.
   - Meal ownership: Malaysian Peanut Chicken.
+- [ ] Cook lentil lettuce wrap filling for Ally's lunch.
+  - Ingredients: Red lentils, broth, onion, carrots, garlic, ginger, soy sauce, sesame oil, neutral oil.
+  - Instructions: Cook lentils and vegetables, combine with sauce, and cool completely before packing.
+  - Storage method: Covered container in refrigerator, separate from lettuce leaves.
+  - Use-by date: Friday, July 10.
+  - Meal ownership: Lentil Lettuce Wraps.
 
 ### Protein Thaw Schedule
 
@@ -227,6 +245,12 @@ Every prep task should include ingredients, instructions, storage method, use-by
   - Storage method: Covered containers in refrigerator.
   - Use-by date: Thursday, July 9.
   - Meal ownership: Greek Chicken Gyro Bowls.
+- [ ] Check Ally's lunch lettuce and filling.
+  - Ingredients: Butter lettuce, lentil filling.
+  - Instructions: Keep lettuce dry and crisp; discard any wilted leaves and stir filling before packing.
+  - Storage method: Lettuce in paper-towel-lined container; filling covered in refrigerator.
+  - Use-by date: Friday, July 10.
+  - Meal ownership: Lentil Lettuce Wraps.
 
 ### Do Not Prep Ahead
 
@@ -238,6 +262,7 @@ Every prep task should include ingredients, instructions, storage method, use-by
 | Romaine and tomato bowl toppings | Greek Gyro Bowls | Wilt and leak moisture | Chop Thursday |
 | Baby potatoes | Steak Bites | Need to be dry for crisping | Boil and roast Friday |
 | Garlic sourdough | Baked Ziti | Gets stale if toasted early | Bake Saturday |
+| Butter lettuce leaves | Lentil Lettuce Wraps | Wilt if filled too early | Fill wraps day-of |
 
 ## Reviews Needed After Cooking
 
@@ -252,6 +277,7 @@ Use `templates/recipe-review.md` for each Stage 1 recipe tested this week.
 | Greek Chicken Gyro Bowls |  |  |  |  |  |  | Yes / No / With changes | Keep Draft / Promote / Retire |
 | Steakhouse Garlic Butter Steak Bites |  |  |  |  |  |  | Yes / No / With changes | Keep Draft / Promote / Retire |
 | Baked Ziti with Italian Sausage |  |  |  |  |  |  | Yes / No / With changes | Keep Draft / Promote / Retire |
+| Lentil Lettuce Wraps |  |  |  |  |  |  | Yes / No / With changes | Keep Draft / Promote / Retire |
 
 ## Stage 2 Promotion Candidates
 
@@ -264,7 +290,7 @@ Only list recipes here after the family has cooked them and decided they are kee
 ## Leftover Plan
 
 - Planned leftovers: Baked ziti should produce the strongest planned leftovers. French onion meatballs may also work for lunches if the gravy holds.
-- Lunch conversions: Mongolian beef, Malaysian peanut chicken, and Greek chicken can become rice bowls.
+- Lunch conversions: Mongolian beef, Malaysian peanut chicken, and Greek chicken can become rice bowls. Lentil lettuce wrap filling is planned for Ally's lunch and should stay separate from lettuce until serving.
 - Freeze portions: Baked ziti can be frozen after baking if cooled completely and wrapped well.
 - Do not save: Pineapple mango salsa may get watery after 24 hours. Romaine bowl toppings should be kept separate and used quickly.
 
@@ -279,3 +305,4 @@ Add useful takeaways to `planning/lessons-learned.md` after the week is complete
 - Did the week feel too rice-heavy even with Saturday pasta?
 - Which chicken profile was strongest: jerk, Malaysian peanut, or Greek?
 - Was Friday steak worth the higher cost compared with another ground-beef meal?
+- Did the lentil lettuce wrap filling hold well for Ally's lunches, or does it need added meat protein?

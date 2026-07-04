@@ -119,3 +119,59 @@ You can still export a single Markdown file by passing the file path:
 ```text
 npm.cmd run export:pdf -- weekly-plans/2026/week-28/week-28-family-cookbook-packet.md
 ```
+
+## Web App And PWA
+
+The cookbook also has a React PWA. It reads generated data from the Markdown files, so Markdown stays the source of truth.
+
+Rebuild the app data after editing recipes, weekly packets, or planning notes:
+
+```text
+npm.cmd run build:app
+```
+
+Run the local app:
+
+```text
+npm.cmd run app
+```
+
+Then open:
+
+```text
+http://localhost:4173
+```
+
+The app includes weekly meal plans, recipes, grocery lists, prep guides, planning notes, a PWA manifest, and a service worker for install/offline support. For hosting, run `npm.cmd run build` and publish the `dist/` folder.
+
+Deploy to GitHub Pages from your machine:
+
+```text
+npm.cmd run deploy:pages
+```
+
+That command builds with the `/familycookbook/` base path and pushes the generated `dist/` contents to the `gh-pages` branch. No GitHub Actions secrets are required.
+
+### Shared Grocery State
+
+The React app can use Firebase for shared grocery state. Copy `.env.example` to `.env` and fill in the Firebase web app values:
+
+```text
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
+VITE_FIREBASE_HOUSEHOLD_ID=family
+```
+
+If Firebase is not configured, grocery checks and manual grocery additions fall back to this device only.
+
+### Apply Recipe Feedback To Markdown
+
+The hosted PWA stores live ratings and notes separately from Markdown. To write approved feedback into a recipe file as a new version entry, run:
+
+```text
+npm.cmd run apply:feedback -- --file weekly-plans/2026/week-28/greek-chicken-gyro-bowls.md --version 2.0 --rating 5/5 --notes "Family liked the sauce amount" --change "Added family rating and notes"
+```

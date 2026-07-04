@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Family Cookbook">
+  <rect width="512" height="512" rx="96" fill="#245c53"/>
+  <path d="M150 118h184c32 0 58 26 58 58v246H170c-29 0-52-23-52-52V150c0-18 14-32 32-32z" fill="#fffaf0"/>
+  <path d="M170 118h184c22 0 40 18 40 40v242H178c-18 0-32-14-32-32V142c0-13 11-24 24-24z" fill="#f7efe0"/>
+  <path d="M178 164h162M178 212h162M178 260h118" stroke="#245c53" stroke-width="20" stroke-linecap="round"/>
+  <path d="M138 370c0 18 14 32 32 32h224" fill="none" stroke="#173f39" stroke-width="28" stroke-linecap="round"/>
+  <circle cx="354" cy="314" r="34" fill="#b64a3a"/>
+  <path d="M348 286c8-20 22-32 42-36" fill="none" stroke="#a87725" stroke-width="14" stroke-linecap="round"/>
+</svg>
