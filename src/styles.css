@@ -370,6 +370,23 @@
   justify-content: center;
 }
 
+.grocery-mobile-summary,
+.grocery-detail-field {
+  display: none;
+}
+
+.grocery-expand-button {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--teal-strong);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  min-height: 30px;
+  padding: 5px 9px;
+}
+
 .grocery-fab {
   align-items: center;
   background: var(--teal);
@@ -569,21 +586,106 @@
 }
 
 @media (max-width: 1100px) {
+  .grocery-table tr {
+    align-items: center;
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 10px 12px;
+  }
+
+  .grocery-mobile-summary {
+    align-items: center;
+    border-bottom: 0;
+    display: flex;
+    gap: 10px;
+    grid-column: 1;
+    justify-content: space-between;
+    min-width: 0;
+    order: 1;
+    padding: 0;
+  }
+
+  .grocery-mobile-summary::before {
+    display: none;
+  }
+
+  .grocery-mobile-main {
+    align-items: baseline;
+    display: flex;
+    gap: 7px;
+    min-width: 0;
+  }
+
+  .grocery-mobile-item {
+    font-size: 16px;
+    font-weight: 700;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .grocery-mobile-quantity {
+    color: var(--muted);
+    flex: 0 0 auto;
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
   .grocery-table .grocery-check-cell {
     align-items: center;
     display: flex;
-    justify-content: space-between;
+    grid-column: 2;
+    justify-content: flex-end;
+    order: 2;
+    padding: 0;
   }
 
   .grocery-table .grocery-check-cell::before {
-    color: var(--muted);
-    content: attr(data-label);
-    font-size: 12px;
-    font-weight: 700;
+    display: none;
   }
 
   .grocery-table .grocery-check-control {
+    background: transparent;
+    border: 0;
     justify-self: end;
+    min-height: 0;
+    padding: 0;
+  }
+
+  .grocery-check-control span {
+    clip: rect(0 0 0 0);
+    height: 1px;
+    overflow: hidden;
+    position: absolute;
+    white-space: nowrap;
+    width: 1px;
+  }
+
+  .grocery-table .grocery-field-item,
+  .grocery-table .grocery-field-quantity {
+    display: none;
+  }
+
+  .grocery-table .grocery-field-preferred-version-type,
+  .grocery-table .grocery-field-acceptable-alternatives,
+  .grocery-table .grocery-field-recipe,
+  .grocery-table .grocery-edit-cell,
+  .grocery-table .grocery-detail-field {
+    grid-column: 1 / -1;
+  }
+
+  .grocery-mode-simple tr:not(.grocery-expanded) .grocery-detail-field,
+  .grocery-mode-simple tr:not(.grocery-expanded) .grocery-edit-cell {
+    display: none;
+  }
+
+  .grocery-mode-simple tr.grocery-expanded .grocery-detail-field {
+    display: grid;
+    order: 4;
+  }
+
+  .grocery-mode-simple tr.grocery-expanded .grocery-edit-cell {
+    display: block;
+    order: 7;
   }
 
   .have-it-section .grocery-table tr {
@@ -593,7 +695,7 @@
   }
 
   .have-it-section .grocery-check-control {
-    background: #ffffff;
+    background: transparent;
   }
 
   .have-it-section .grocery-checked td:not(.check-column) {

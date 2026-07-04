@@ -23,7 +23,7 @@ const views = [
   ["prep", "Prep"],
 ];
 const baseUrl = import.meta.env.BASE_URL;
-const appVersion = "0.1.25";
+const appVersion = "0.1.26";
 
 function App() {
   const [data, setData] = useState(null);
@@ -755,8 +755,17 @@ function GroceryView({ ingredientMode, search, setIngredientMode, setUnitMode, u
 }
 
 function GrocerySection({ checkedKeys, ingredientMode, onEditManual, onRemoveManual, onToggle, section, unitMode }) {
+  const [expandedKeys, setExpandedKeys] = useState([]);
   const headers = Object.keys(section.items[0] || {}).filter((header) => !header.startsWith("_"));
   const visibleHeaders = ingredientMode === "simple" ? headers.filter(isEssentialGroceryHeader) : headers;
+  const detailHeaders = headers.filter((header) => !isEssentialGroceryHeader(header));
+  const toggleExpanded = (itemKey) => {
+    setExpandedKeys((current) => (
+      current.includes(itemKey)
+        ? current.filter((key) => key !== itemKey)
+        : [...current, itemKey]
+    ));
+  };
 
   return (
     <section className={section.isHaveIt ? "have-it-section" : ""}>
@@ -765,7 +774,7 @@ function GrocerySection({ checkedKeys, ingredientMode, onEditManual, onRemoveMan
         <span className="pill">{section.isHaveIt ? `${section.items.length} checked` : `${section.items.length} items`}</span>
       </div>
       <div className="table-wrap">
-        <table className="grocery-table">
+        <table className={`grocery-table grocery-mode-${ingredientMode}`}>
           <thead>
             <tr>
               <th className="check-column">Have</th>
@@ -776,8 +785,27 @@ function GrocerySection({ checkedKeys, ingredientMode, onEditManual, onRemoveMan
           <tbody>
             {section.items.map((item) => {
               const checked = checkedKeys.has(item._key);
+              const expanded = ingredientMode === "detailed" || expandedKeys.includes(item._key);
               return (
-                <tr className={checked ? "grocery-checked" : ""} key={item._key}>
+                <tr className={`${checked ? "grocery-checked" : ""} ${expanded ? "grocery-expanded" : ""}`} key={item._key}>
+                  <td className="grocery-mobile-summary">
+                    <div className="grocery-mobile-main">
+                      <span className="grocery-mobile-item">{item.Item || ""}</span>
+                      {item.Quantity ? (
+                        <span className="grocery-mobile-quantity">{formatGroceryCardQuantity(item.Quantity, unitMode)}</span>
+                      ) : null}
+                    </div>
+                    {ingredientMode === "simple" ? (
+                      <button
+                        aria-expanded={expanded}
+                        className="grocery-expand-button"
+                        onClick={() => toggleExpanded(item._key)}
+                        type="button"
+                      >
+                        {expanded ? "Less" : "Details"}
+                      </button>
+                    ) : null}
+                  </td>
                   <td className="check-column grocery-check-cell" data-label="Have">
                     <label className="grocery-check-control">
                       <input
@@ -794,6 +822,11 @@ function GrocerySection({ checkedKeys, ingredientMode, onEditManual, onRemoveMan
                       {isQuantityHeader(header) ? formatQuantity(item[header], unitMode) : item[header] || ""}
                     </td>
                   ))}
+                  {ingredientMode === "simple" ? detailHeaders.map((header) => (
+                    <td className={`${groceryFieldClass(header)} grocery-detail-field`} data-label={header} key={`detail-${header}`}>
+                      {item[header] || ""}
+                    </td>
+                  )) : null}
                   <td className={`check-column grocery-edit-cell ${item._source === "manual" ? "" : "empty-edit"}`} data-label="Edit">
                     {item._source === "manual" ? (
                       <div className="grocery-row-actions">
@@ -1614,6 +1647,14 @@ function isEssentialGroceryHeader(header) {
 
 function isQuantityHeader(header) {
   return normalizeHeader(header) === "quantity";
+}
+
+function formatGroceryCardQuantity(value, unitMode) {
+  const formatted = formatQuantity(value, unitMode);
+  if (/^\d+(?:\.\d+)?$/.test(formatted.trim())) {
+    return `x${formatted.trim()}`;
+  }
+  return formatted;
 }
 
 function normalizeHeader(header) {

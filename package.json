@@ -1,6 +1,6 @@
 {
   "name": "family-cookbook",
-  "version": "0.1.25",
+  "version": "0.1.26",
   "private": true,
   "description": "Markdown-first family cookbook with simple JavaScript helpers.",
   "scripts": {
