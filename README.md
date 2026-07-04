@@ -154,7 +154,9 @@ That command builds with the `/familycookbook/` base path and pushes the generat
 
 ### Shared Firebase State
 
-The React app can use Firebase for shared weekly planning, grocery, prep, and recipe feedback state. Copy `.env.example` to `.env` and fill in the Firebase web app values:
+The React app uses Markdown as the recipe source of truth and Firebase as operational week state. Recipes, instructions, notes, reviews, and version history stay in Markdown. Selected weeks, assigned meals, grocery snapshots, checked grocery items, prep snapshots, and completed prep checks belong in Firebase.
+
+Copy `.env.example` to `.env` and fill in the Firebase web app values:
 
 ```text
 VITE_FIREBASE_API_KEY=
@@ -180,7 +182,18 @@ Seed Markdown weekly packets into Firebase:
 npm.cmd run migrate:firebase
 ```
 
-The migration writes Markdown week menus, grocery sections, prep sections, and the week picker index into Firestore while preserving app-created planning weeks.
+The migration writes Markdown week menus, grocery sections, prep sections, unified `weeks/{weekId}` snapshots, and the week picker index into Firestore while preserving app-created planning weeks.
+
+Week creation follows this operational snapshot flow:
+
+1. Create or edit a week in the Recipes tab.
+2. Assign archive recipes to days/meals.
+3. Parse recipe ingredient tables.
+4. Merge duplicate grocery ingredients.
+5. Generate grocery and prep snapshots.
+6. Save the week snapshot to Firebase.
+
+Grocery and prep are saved as snapshots so later recipe edits do not unexpectedly change an already planned week.
 
 ### Apply Recipe Feedback To Markdown
 

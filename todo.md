@@ -8,6 +8,7 @@ Firestore rules have been deployed for:
 - `prepWeeks`
 - `weeklyPlans`
 - `workingWeeks`
+- `weeks`
 - `recipeFeedback`
 
 Project: `familycookbook-d7c0d`
@@ -41,6 +42,8 @@ npm.cmd run migrate:firebase -- --dry-run
 
 - Recipes remain Markdown-first.
 - New generated recipes should start in `recipe-archive/drafts/`.
-- App-created planning weeks live in Firebase `workingWeeks`.
-- Grocery and prep state live in Firebase week documents.
+- App-created planning weeks save operational snapshots to Firebase.
+- Unified week snapshots live in Firebase `weeks/{weekId}`.
+- Grocery and prep state also remain available in week-specific Firebase documents for the current UI.
+- Grocery/prep snapshots should not live-recalculate from Markdown after week creation.
 - App falls back to local device storage when Firebase is unavailable.

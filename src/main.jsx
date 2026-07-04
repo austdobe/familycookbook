@@ -23,7 +23,7 @@ const views = [
   ["prep", "Prep"],
 ];
 const baseUrl = import.meta.env.BASE_URL;
-const appVersion = "0.1.27";
+const appVersion = "0.1.29";
 
 function App() {
   const [data, setData] = useState(null);
@@ -988,6 +988,7 @@ function CreateWeeklyMenuPanel({ activeDocId, archiveDocs, onSaveWorkingWeek, wo
   const [weekNumber, setWeekNumber] = useState(String(defaultWeek.weekNumber));
   const [startDate, setStartDate] = useState(defaultWeek.startDate);
   const [selectedDay, setSelectedDay] = useState("");
+  const [draftRows, setDraftRows] = useState([]);
   const [status, setStatus] = useState("");
 
   const selectedRecipe = archiveDocs.find((doc) => doc.id === selectedArchiveId)
@@ -999,12 +1000,7 @@ function CreateWeeklyMenuPanel({ activeDocId, archiveDocs, onSaveWorkingWeek, wo
     ? workingWeekDayOptions(targetWeek)
     : buildWeekDayOptions(startDate);
   const targetDay = selectedDay || dayOptions[0] || "";
-  const basePreviewRows = targetMode === "existing" && targetWeek?.menuRows?.length
-    ? targetWeek.menuRows
-    : createBlankMenuRows(dayOptions);
-  const previewRows = selectedRecipe && targetDay
-    ? replaceMenuRowForDay(basePreviewRows, archiveRecipeToMenuRow(selectedRecipe, targetDay))
-    : basePreviewRows;
+  const previewRows = draftRows.length ? draftRows : createBlankMenuRows(dayOptions);
 
   useEffect(() => {
     if (archiveDocs.some((doc) => doc.id === activeDocId)) {
@@ -1023,6 +1019,16 @@ function CreateWeeklyMenuPanel({ activeDocId, archiveDocs, onSaveWorkingWeek, wo
   useEffect(() => {
     setSelectedDay("");
   }, [startDate, targetMode, targetWeekId]);
+
+  useEffect(() => {
+    if (!dialogOpen) {
+      return;
+    }
+    const nextRows = targetMode === "existing" && targetWeek?.menuRows?.length
+      ? targetWeek.menuRows
+      : createBlankMenuRows(dayOptions);
+    setDraftRows(nextRows);
+  }, [dialogOpen, targetMode, targetWeekId, startDate]);
 
   useEffect(() => {
     if (!dialogOpen) {
@@ -1048,27 +1054,45 @@ function CreateWeeklyMenuPanel({ activeDocId, archiveDocs, onSaveWorkingWeek, wo
     };
   }, [dialogOpen]);
 
-  const saveRecipeToWeek = async (event) => {
-    event.preventDefault();
+  const setRecipeForDay = () => {
     if (!selectedRecipe || !targetDay) {
       return;
     }
+    const nextRow = archiveRecipeToMenuRow(selectedRecipe, targetDay);
+    setDraftRows((current) => replaceMenuRowForDay(current.length ? current : createBlankMenuRows(dayOptions), nextRow));
+  };
+
+  const clearRecipeForDay = () => {
+    if (!targetDay) {
+      return;
+    }
+    setDraftRows((current) => clearMenuRowForDay(current.length ? current : createBlankMenuRows(dayOptions), targetDay));
+  };
+
+  const saveRecipeToWeek = async (event) => {
+    event.preventDefault();
 
     const baseWeek = targetMode === "existing" && targetWeek
       ? targetWeek
       : createWorkingWeekShell({ startDate, weekNumber, year });
-    const baseRows = baseWeek.menuRows?.length ? baseWeek.menuRows : createBlankMenuRows(dayOptions);
-    const nextRow = archiveRecipeToMenuRow(selectedRecipe, targetDay);
-    const menuRows = replaceMenuRowForDay(baseRows, nextRow);
+    const menuRows = draftRows.length ? draftRows : createBlankMenuRows(dayOptions);
+    const grocerySections = buildGrocerySectionsFromMenuRows(menuRows, archiveDocs);
+    const prepSections = buildPrepSectionsFromMenuRows(menuRows);
     const nextWeek = {
       ...baseWeek,
       endDate: weekEndDate(baseWeek.startDate),
+      groceryItems: flattenGrocerySections(grocerySections),
+      grocerySections,
+      meals: menuRows,
       menuRows,
+      prepSections,
+      prepTasks: flattenPrepSections(prepSections),
       recipePaths: uniqueValues(menuRows.map((row) => row["Recipe path"]).filter(Boolean)),
+      title: baseWeek.title || baseWeek.label,
     };
 
     await onSaveWorkingWeek(nextWeek);
-    setStatus(`Added ${selectedRecipe.title} to ${nextWeek.label}`);
+    setStatus(`Saved ${menuRows.filter(hasMeal).length} meal${menuRows.filter(hasMeal).length === 1 ? "" : "s"} to ${nextWeek.label}`);
     setDialogOpen(false);
   };
 
@@ -1169,7 +1193,11 @@ function CreateWeeklyMenuPanel({ activeDocId, archiveDocs, onSaveWorkingWeek, wo
                     ))}
                   </select>
                 </label>
-                <WeekMenuPreview rows={previewRows} targetDay={targetDay} />
+                <div className="week-day-actions">
+                  <button className="primary-button" onClick={setRecipeForDay} type="button">Set Day</button>
+                  <button className="quiet-button" onClick={clearRecipeForDay} type="button">Clear Day</button>
+                </div>
+                <WeekMenuPreview rows={previewRows} targetDay={targetDay} onSelectDay={setSelectedDay} />
                 <div className="dialog-actions">
                   <button className="quiet-button" onClick={() => setDialogOpen(false)} type="button">Cancel</button>
                   <button className="primary-button" type="submit">{targetMode === "existing" ? "Save Week" : "Create Week"}</button>
@@ -1185,7 +1213,7 @@ function CreateWeeklyMenuPanel({ activeDocId, archiveDocs, onSaveWorkingWeek, wo
   );
 }
 
-function WeekMenuPreview({ rows, targetDay }) {
+function WeekMenuPreview({ onSelectDay, rows, targetDay }) {
   return (
     <div className="week-menu-preview" aria-label="Weekly menu preview">
       <div className="week-menu-preview-header">
@@ -1197,11 +1225,16 @@ function WeekMenuPreview({ rows, targetDay }) {
           const isTarget = row.Day === targetDay;
           const meal = row.Meal || "Open";
           return (
-            <div className={`week-menu-preview-item ${isTarget ? "pending" : ""} ${row.Meal ? "filled" : ""}`} key={row.Day || meal}>
+            <button
+              className={`week-menu-preview-item ${isTarget ? "pending" : ""} ${row.Meal ? "filled" : ""}`}
+              key={row.Day || meal}
+              onClick={() => onSelectDay(row.Day)}
+              type="button"
+            >
               <span className="week-menu-preview-day">{row.Day || "Day"}</span>
               <span className="week-menu-preview-meal">{meal}</span>
               {row.Protein ? <span className="week-menu-preview-meta">{row.Protein}</span> : null}
-            </div>
+            </button>
           );
         })}
       </div>
@@ -1352,8 +1385,8 @@ function workingWeekToAppWeek(week, archiveDocs) {
     },
     recipes,
     weeklyMenu: menuRows,
-    grocerySections: buildGrocerySectionsFromMenuRows(menuRows, archiveDocs),
-    prepSections: buildPrepSectionsFromMenuRows(menuRows),
+    grocerySections: week.grocerySections || buildGrocerySectionsFromMenuRows(menuRows, archiveDocs),
+    prepSections: week.prepSections || buildPrepSectionsFromMenuRows(menuRows),
   };
 }
 
@@ -1407,6 +1440,7 @@ function buildGrocerySectionsFromMenuRows(menuRows, archiveDocs) {
         "Preferred version/type": ingredientRow["Preferred version/type"] || ingredientRow.Preferred || "",
         "Acceptable alternatives": ingredientRow["Acceptable alternatives"] || ingredientRow.Alternatives || "",
         Recipe: doc.title,
+        _recipeRefs: [doc.path],
       });
     });
   });
@@ -1422,8 +1456,92 @@ function buildGrocerySectionsFromMenuRows(menuRows, archiveDocs) {
   ];
 
   return [...grouped.values()]
-    .map((section) => ({ ...section, items: sortGroceryItems(section.items) }))
+    .map((section) => ({ ...section, items: sortGroceryItems(mergeGroceryItems(section.items)) }))
     .sort((first, second) => sectionOrder.indexOf(first.title) - sectionOrder.indexOf(second.title));
+}
+
+function mergeGroceryItems(items) {
+  const merged = new Map();
+  items.forEach((item) => {
+    const key = [
+      normalizeGroceryItemName(item.Item),
+      normalizeGroceryItemName(item["Preferred version/type"]),
+      normalizeGroceryItemName(item["Acceptable alternatives"]),
+    ].join("|");
+    const existing = merged.get(key);
+    if (!existing) {
+      merged.set(key, { ...item, _recipeRefs: item._recipeRefs || [] });
+      return;
+    }
+
+    existing.Quantity = mergeQuantities(existing.Quantity, item.Quantity);
+    existing.Recipe = uniqueValues([...(existing.Recipe || "").split(/,\s*/), item.Recipe].filter(Boolean)).join(", ");
+    existing._recipeRefs = uniqueValues([...(existing._recipeRefs || []), ...(item._recipeRefs || [])]);
+  });
+  return [...merged.values()];
+}
+
+function mergeQuantities(first, second) {
+  if (!first) {
+    return second || "";
+  }
+  if (!second || first === second) {
+    return first;
+  }
+
+  const firstNumber = Number(first);
+  const secondNumber = Number(second);
+  if (Number.isFinite(firstNumber) && Number.isFinite(secondNumber)) {
+    return String(firstNumber + secondNumber);
+  }
+
+  return uniqueValues([first, second]).join(" + ");
+}
+
+function flattenGrocerySections(sections) {
+  return sections.flatMap((section) => section.items.map((item, index) => {
+    const parsedQuantity = parseQuantityParts(item.Quantity);
+    return {
+      alternatives: item["Acceptable alternatives"] || "",
+      category: section.title,
+      checked: false,
+      id: `${normalizeSectionName(section.title)}-${normalizeGroceryItemName(item.Item).replace(/\s+/g, "-")}-${index}`,
+      name: item.Item || "",
+      preferredType: item["Preferred version/type"] || "",
+      quantity: parsedQuantity.quantity,
+      quantityText: item.Quantity || "",
+      recipeRefs: item._recipeRefs || [],
+      unit: parsedQuantity.unit,
+    };
+  }));
+}
+
+function flattenPrepSections(sections) {
+  return sections.flatMap((section) => parsePrepTasks(section.markdown).map((task) => ({
+    checked: false,
+    ingredients: prepDetailValue(task.details, "Ingredients"),
+    instructions: prepDetailValue(task.details, "Instructions"),
+    mealRefs: [prepDetailValue(task.details, "Meal ownership")].filter(Boolean),
+    section: section.title,
+    storageMethod: prepDetailValue(task.details, "Storage method"),
+    title: task.title,
+    useByDate: prepDetailValue(task.details, "Use-by date"),
+  })));
+}
+
+function prepDetailValue(details, label) {
+  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = String(details || "").match(new RegExp(`^-\\s+${escapedLabel}:\\s*(.+)$`, "im"));
+  return match ? match[1].trim() : "";
+}
+
+function parseQuantityParts(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d+(?:\s+\d+\/\d+|\/\d+|\.\d+)?)(?:\s+(.+))?$/);
+  if (!match) {
+    return { quantity: text, unit: "" };
+  }
+  return { quantity: match[1], unit: match[2] || "" };
 }
 
 function buildPrepSectionsFromMenuRows(menuRows) {
@@ -1595,6 +1713,26 @@ function replaceMenuRowForDay(rows, nextRow) {
   }
   nextRows[existingIndex] = { ...nextRows[existingIndex], ...nextRow };
   return nextRows;
+}
+
+function clearMenuRowForDay(rows, day) {
+  return rows.map((row) => {
+    if (row.Day !== day) {
+      return row;
+    }
+    return {
+      ...row,
+      Meal: "",
+      Notes: "",
+      "Cuisine/flavor": "",
+      "Perishability reason": "",
+      "Plan source": "",
+      Protein: "",
+      "Recipe file": "",
+      "Recipe path": "",
+      Stage: "",
+    };
+  });
 }
 
 function findRecipeDocForMenuRow(row, docs) {

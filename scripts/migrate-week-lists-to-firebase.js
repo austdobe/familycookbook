@@ -89,6 +89,8 @@ function migrationPayload(week, kind) {
       menuRows: week.weeklyMenu || [],
       migratedAt: now,
       planSource: "firebase",
+      prepSections: week.prepSections || [],
+      grocerySections: week.grocerySections || [],
       startDate: week.startDate || "",
       sourcePacketPath: week.packet.path,
       year: week.year || "",
@@ -121,9 +123,14 @@ function weekIndexPayload(existingWeeks, markdownWeeks) {
       folder: week.folder || "",
       id: week.id,
       label: week.label || week.id,
+      groceryItems: flattenGrocerySections(week.grocerySections || []),
+      grocerySections: week.grocerySections || [],
+      meals: week.weeklyMenu || [],
       menuRows: week.weeklyMenu || [],
       migratedAt: new Date().toISOString(),
       planSource: "markdown-migration",
+      prepSections: week.prepSections || [],
+      prepTasks: flattenPrepSections(week.prepSections || []),
       recipePaths: week.recipes.map((recipe) => recipe.path),
       sourcePacketPath: week.packet.path,
       startDate: week.startDate || "",
@@ -137,6 +144,100 @@ function weekIndexPayload(existingWeeks, markdownWeeks) {
   };
 }
 
+function weekDocumentPayload(week) {
+  return {
+    createdAt: new Date().toISOString(),
+    folder: week.folder || "",
+    groceryItems: flattenGrocerySections(week.grocerySections || []),
+    grocerySections: week.grocerySections || [],
+    id: week.id,
+    meals: week.weeklyMenu || [],
+    menuRows: week.weeklyMenu || [],
+    migratedAt: new Date().toISOString(),
+    planSource: "markdown-migration",
+    prepSections: week.prepSections || [],
+    prepTasks: flattenPrepSections(week.prepSections || []),
+    recipePaths: week.recipes.map((recipe) => recipe.path),
+    sourcePacketPath: week.packet.path,
+    title: week.label || week.id,
+    updatedAt: new Date().toISOString(),
+    weekNumber: week.id.match(/week-(\d+)/)?.[1] || "",
+    year: week.year || "",
+  };
+}
+
+function flattenGrocerySections(sections) {
+  return sections.flatMap((section) => section.items.map((item, index) => {
+    const parsedQuantity = parseQuantityParts(item.Quantity);
+    return {
+      alternatives: item["Acceptable alternatives"] || "",
+      category: section.title,
+      checked: false,
+      id: `${normalizeId(section.title)}-${normalizeId(item.Item)}-${index}`,
+      name: item.Item || "",
+      preferredType: item["Preferred version/type"] || "",
+      quantity: parsedQuantity.quantity,
+      quantityText: item.Quantity || "",
+      recipeRefs: String(item.Recipe || "").split(/,\s*/).filter(Boolean),
+      unit: parsedQuantity.unit,
+    };
+  }));
+}
+
+function flattenPrepSections(sections) {
+  return sections.flatMap((section) => parsePrepTasks(section.markdown).map((task) => ({
+    checked: false,
+    ingredients: prepDetailValue(task.details, "Ingredients"),
+    instructions: prepDetailValue(task.details, "Instructions"),
+    mealRefs: [prepDetailValue(task.details, "Meal ownership")].filter(Boolean),
+    section: section.title,
+    storageMethod: prepDetailValue(task.details, "Storage method"),
+    title: task.title,
+    useByDate: prepDetailValue(task.details, "Use-by date"),
+  })));
+}
+
+function parsePrepTasks(markdown) {
+  const tasks = [];
+  let current = null;
+
+  String(markdown || "").replace(/\r\n/g, "\n").split("\n").forEach((line) => {
+    const taskMatch = line.match(/^[-*+]\s+\[[ xX]\]\s+(.+)$/);
+    if (taskMatch) {
+      current = { details: [], title: taskMatch[1].trim() };
+      tasks.push(current);
+      return;
+    }
+    if (current) {
+      current.details.push(line.replace(/^ {2}/, ""));
+    }
+  });
+
+  return tasks.map((task) => ({ ...task, details: task.details.join("\n").trim() }));
+}
+
+function prepDetailValue(details, label) {
+  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = String(details || "").match(new RegExp(`^-\\s+${escapedLabel}:\\s*(.+)$`, "im"));
+  return match ? match[1].trim() : "";
+}
+
+function parseQuantityParts(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d+(?:\s+\d+\/\d+|\/\d+|\.\d+)?)(?:\s+(.+))?$/);
+  if (!match) {
+    return { quantity: text, unit: "" };
+  }
+  return { quantity: match[1], unit: match[2] || "" };
+}
+
+function normalizeId(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const data = loadCookbookData();
@@ -148,7 +249,7 @@ async function main() {
 
   if (args.dryRun) {
     for (const week of weeks) {
-      console.log(`Would migrate ${week.id}: ${week.weeklyMenu.length} menu row(s), ${week.grocerySections.length} grocery section(s), ${week.prepSections.length} prep section(s).`);
+      console.log(`Would migrate ${week.id}: ${week.weeklyMenu.length} menu row(s), ${week.grocerySections.length} grocery section(s), ${week.prepSections.length} prep section(s), and unified week snapshot.`);
     }
     console.log(`Would update workingWeeks/index with ${weeks.length} markdown week(s).`);
     return;
@@ -186,6 +287,11 @@ async function main() {
       await setDoc(
         doc(db, "households", householdId, "prepWeeks", week.id),
         migrationPayload(week, "prep"),
+        { merge: true }
+      );
+      await setDoc(
+        doc(db, "households", householdId, "weeks", week.id),
+        weekDocumentPayload(week),
         { merge: true }
       );
       console.log(`Migrated ${week.id}: ${week.weeklyMenu.length} menu row(s), ${week.grocerySections.length} grocery section(s), ${week.prepSections.length} prep section(s).`);

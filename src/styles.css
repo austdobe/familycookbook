@@ -425,6 +425,11 @@
   grid-template-columns: minmax(90px, 1fr) minmax(90px, 1fr) minmax(150px, 1.4fr);
 }
 
+.week-day-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .dialog-help {
   color: var(--muted);
   font-size: 14px;
@@ -470,11 +475,15 @@
   background: #ffffff;
   border: 1px solid var(--line);
   border-radius: 8px;
+  color: var(--ink);
+  cursor: pointer;
   display: grid;
   gap: 3px;
   grid-template-columns: minmax(116px, 0.8fr) minmax(0, 1.2fr);
   min-width: 0;
   padding: 8px 10px;
+  text-align: left;
+  width: 100%;
 }
 
 .week-menu-preview-item.pending {
@@ -810,6 +819,16 @@
 
   .week-dialog-grid {
     grid-template-columns: 1fr;
+  }
+
+  .week-day-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .week-day-actions .primary-button,
+  .week-day-actions .quiet-button {
+    width: 100%;
   }
 
   .week-menu-preview-item {

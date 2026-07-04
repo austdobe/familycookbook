@@ -34,6 +34,14 @@ async function getStateRef() {
   return doc(client.db, "households", householdId, "workingWeeks", "index");
 }
 
+async function getWeekRef(weekId) {
+  const client = await getFirebaseClient();
+  if (!client) {
+    return null;
+  }
+  return doc(client.db, "households", householdId, "weeks", weekId);
+}
+
 export function subscribeWorkingWeeks(callback) {
   let unsubscribeFirebase = null;
   let cancelled = false;
@@ -81,7 +89,10 @@ export async function upsertWorkingWeek(week) {
   const current = readLocalState();
   const weeks = upsertWeek(current.weeks || [], week);
   const nextState = { weeks, updatedAt: new Date().toISOString() };
-  const stateRef = await getStateRef().catch(() => null);
+  const [stateRef, weekRef] = await Promise.all([
+    getStateRef().catch(() => null),
+    getWeekRef(week.id).catch(() => null),
+  ]);
   if (!stateRef) {
     writeLocalState(nextState);
     return weeks;
@@ -89,7 +100,10 @@ export async function upsertWorkingWeek(week) {
 
   mirrorLocalState(nextState);
   try {
-    await setDoc(stateRef, nextState, { merge: true });
+    await Promise.all([
+      setDoc(stateRef, nextState, { merge: true }),
+      weekRef ? setDoc(weekRef, weekDocumentPayload(week), { merge: true }) : Promise.resolve(),
+    ]);
   } catch {
     writeLocalState(nextState);
   }
@@ -103,4 +117,21 @@ export function upsertWeek(weeks, week) {
     return [...weeks, { ...nextWeek, createdAt: nextWeek.createdAt || nextWeek.updatedAt }];
   }
   return weeks.map((candidate, index) => (index === existingIndex ? { ...candidate, ...nextWeek } : candidate));
+}
+
+function weekDocumentPayload(week) {
+  return {
+    createdAt: week.createdAt || new Date().toISOString(),
+    groceryItems: week.groceryItems || [],
+    grocerySections: week.grocerySections || [],
+    meals: week.meals || week.menuRows || [],
+    menuRows: week.menuRows || week.meals || [],
+    prepSections: week.prepSections || [],
+    prepTasks: week.prepTasks || [],
+    recipePaths: week.recipePaths || [],
+    title: week.title || week.label || week.id,
+    updatedAt: new Date().toISOString(),
+    weekNumber: week.weekNumber || "",
+    year: week.year || "",
+  };
 }
