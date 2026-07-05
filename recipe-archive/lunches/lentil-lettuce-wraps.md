@@ -2,7 +2,7 @@
 
 Status: Stage 1 Draft  
 Archive folder: `recipe-archive/lunches/`  
-Category: Vegetarian  
+Category: Lunches  
 Source or inspiration: Previous family draft recipe  
 Date added: 2026-07-04  
 

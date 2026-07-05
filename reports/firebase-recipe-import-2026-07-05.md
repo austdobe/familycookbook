@@ -1,10 +1,10 @@
 # Firebase Recipe Import Dry Run
 
-Generated: 2026-07-05T05:18:40.158Z
+Generated: 2026-07-05T16:43:48.219Z
 
 ## Summary
 
-- Recipes parsed: 21
+- Recipes parsed: 28
 - Warnings: 0
 - JSON preview: `reports/firebase-recipe-import-2026-07-05.json`
 
@@ -12,20 +12,37 @@ Generated: 2026-07-05T05:18:40.158Z
 
 | Status | Count |
 |---|---:|
-| stage-1 | 21 |
+| stage-1 | 28 |
 
 ### By Category
 
 | Category | Count |
 |---|---:|
-| beef | 5 |
-| chicken | 6 |
+| beef | 8 |
+| chicken | 9 |
 | desserts | 1 |
-| lunches | 2 |
+| lunches | 3 |
+| pasta | 1 |
 | pork | 2 |
 | seafood | 2 |
+| sides | 1 |
 | turkey | 1 |
-| vegetarian | 2 |
+
+## Weekly Folder Audit
+
+- Week-only recipe files missing from archive: 0
+
+## Firestore Audit
+
+- Household: family
+- Local recipe count: 28
+- Remote recipe count: 29
+- Missing local recipes in Firestore: 0
+- Firebase-only recipes: 1
+
+### Firebase-Only Recipes
+
+- bavarian-hunter-s-pork-chops-with-creamy-mushroom-gravy
 
 ## Recipes
 
@@ -39,6 +56,16 @@ Generated: 2026-07-05T05:18:40.158Z
 - Instruction sections: 1
 - Warnings: none
 
+### French Onion Meatballs with Creamy Mashed Potatoes and Green Beans
+
+- ID: `french-onion-meatballs-mashed-potatoes-green-beans`
+- Source: `recipe-archive/beef/french-onion-meatballs-mashed-potatoes-green-beans.md`
+- Status: stage-1
+- Category: beef
+- Ingredients: 27
+- Instruction sections: 1
+- Warnings: none
+
 ### Ground Beef Tacos
 
 - ID: `ground-beef-tacos`
@@ -46,6 +73,16 @@ Generated: 2026-07-05T05:18:40.158Z
 - Status: stage-1
 - Category: beef
 - Ingredients: 8
+- Instruction sections: 1
+- Warnings: none
+
+### Mongolian Beef with Jasmine Rice and Broccoli
+
+- ID: `mongolian-beef-jasmine-rice-broccoli`
+- Source: `recipe-archive/beef/mongolian-beef-jasmine-rice-broccoli.md`
+- Status: stage-1
+- Category: beef
+- Ingredients: 17
 - Instruction sections: 1
 - Warnings: none
 
@@ -76,6 +113,16 @@ Generated: 2026-07-05T05:18:40.158Z
 - Status: stage-1
 - Category: beef
 - Ingredients: 13
+- Instruction sections: 1
+- Warnings: none
+
+### Steakhouse Garlic Butter Steak Bites with Roasted Vegetables and Crispy Baby Potatoes
+
+- ID: `steakhouse-garlic-butter-steak-bites-roasted-vegetables-potatoes`
+- Source: `recipe-archive/beef/steakhouse-garlic-butter-steak-bites-roasted-vegetables-potatoes.md`
+- Status: stage-1
+- Category: beef
+- Ingredients: 15
 - Instruction sections: 1
 - Warnings: none
 
@@ -119,6 +166,36 @@ Generated: 2026-07-05T05:18:40.158Z
 - Instruction sections: 1
 - Warnings: none
 
+### Greek Chicken Gyro Bowls
+
+- ID: `greek-chicken-gyro-bowls`
+- Source: `recipe-archive/chicken/greek-chicken-gyro-bowls.md`
+- Status: stage-1
+- Category: chicken
+- Ingredients: 27
+- Instruction sections: 1
+- Warnings: none
+
+### Jamaican Jerk Chicken with Coconut Rice and Pineapple Mango Salsa
+
+- ID: `jamaican-jerk-chicken-coconut-rice-pineapple-mango-salsa`
+- Source: `recipe-archive/chicken/jamaican-jerk-chicken-coconut-rice-pineapple-mango-salsa.md`
+- Status: stage-1
+- Category: chicken
+- Ingredients: 31
+- Instruction sections: 1
+- Warnings: none
+
+### Malaysian Peanut Chicken with Jasmine Rice and Stir-Fried Vegetables
+
+- ID: `malaysian-peanut-chicken-jasmine-rice-stir-fried-vegetables`
+- Source: `recipe-archive/chicken/malaysian-peanut-chicken-jasmine-rice-stir-fried-vegetables.md`
+- Status: stage-1
+- Category: chicken
+- Ingredients: 25
+- Instruction sections: 1
+- Warnings: none
+
 ### Peruvian Chicken with Green Sauce, Roasted Potatoes, and Simple Salad
 
 - ID: `peruvian-chicken-green-sauce-roasted-potatoes-simple-salad`
@@ -154,7 +231,7 @@ Generated: 2026-07-05T05:18:40.158Z
 - ID: `lentil-lettuce-wraps`
 - Source: `recipe-archive/lunches/lentil-lettuce-wraps.md`
 - Status: stage-1
-- Category: vegetarian
+- Category: lunches
 - Ingredients: 11
 - Instruction sections: 1
 - Warnings: none
@@ -176,6 +253,16 @@ Generated: 2026-07-05T05:18:40.158Z
 - Status: stage-1
 - Category: lunches
 - Ingredients: 6
+- Instruction sections: 1
+- Warnings: none
+
+### Baked Ziti with Italian Sausage and Garlic Sourdough Bread
+
+- ID: `baked-ziti-italian-sausage-garlic-sourdough`
+- Source: `recipe-archive/pasta/baked-ziti-italian-sausage-garlic-sourdough.md`
+- Status: stage-1
+- Category: pasta
+- Ingredients: 20
 - Instruction sections: 1
 - Warnings: none
 
@@ -224,7 +311,7 @@ Generated: 2026-07-05T05:18:40.158Z
 - ID: `harvest-grain-bowl`
 - Source: `recipe-archive/sides/harvest-grain-bowl.md`
 - Status: stage-1
-- Category: vegetarian
+- Category: sides
 - Ingredients: 12
 - Instruction sections: 1
 - Warnings: none

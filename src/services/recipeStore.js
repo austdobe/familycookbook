@@ -156,11 +156,21 @@ function recipeToArchiveDoc(recipe) {
     id: recipe.id,
     title: recipe.title || recipe.id,
     type: "firebase-recipe",
-    path: recipe.archivedMarkdownPath || `firebase/recipes/${recipe.id}.md`,
+    path: archivePathForRecipe(recipe),
     markdown,
     summary: markdown.slice(0, 240),
     recipe,
   };
+}
+
+function archivePathForRecipe(recipe) {
+  const category = slugFromTitle(recipe.category || "uncategorized");
+  const fallbackPath = `recipe-archive/${category}/${recipe.id}.md`;
+  const storedPath = String(recipe.archivedMarkdownPath || "");
+  if (!storedPath || storedPath.startsWith("firebase/recipes/")) {
+    return fallbackPath;
+  }
+  return storedPath;
 }
 
 function recipeToMarkdown(recipe) {

@@ -94,6 +94,10 @@ export async function saveGroceryState(weekId, nextState) {
   }
 }
 
+export async function getGroceryState(weekId) {
+  return readCurrentState(weekId);
+}
+
 export async function toggleGroceryItem(weekId, itemKey, checked) {
   const current = await readCurrentState(weekId);
   const checkedSet = new Set(current.checkedKeys || []);

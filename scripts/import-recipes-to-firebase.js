@@ -3,6 +3,7 @@ const path = require("path");
 
 const rootDir = path.resolve(__dirname, "..");
 const archiveDir = path.join(rootDir, "recipe-archive");
+const weeklyPlansDir = path.join(rootDir, "weekly-plans");
 const reportsDir = path.join(rootDir, "reports");
 
 function loadEnvFile(fileName) {
@@ -110,6 +111,11 @@ function walkMarkdownFiles(dir) {
   return files.sort((first, second) => first.localeCompare(second));
 }
 
+function weeklyRecipeFiles() {
+  return walkMarkdownFiles(weeklyPlansDir)
+    .filter((filePath) => !path.basename(filePath).toLowerCase().includes("family-cookbook-packet"));
+}
+
 function readMarkdown(filePath) {
   return fs.readFileSync(filePath, "utf8").replace(/\r\n/g, "\n");
 }
@@ -121,6 +127,7 @@ function parseRecipeFile(filePath) {
   const sourcePath = relativePath(filePath);
   const id = slugFromPath(filePath);
   const metadata = parseTopMetadata(markdown);
+  const archiveCategory = normalizeCategory(path.basename(path.dirname(filePath)) || metadata.category);
   const planningSummary = parseLabeledBulletSection(markdown, "Planning Summary");
   const ingredients = parseIngredients(markdown, warnings);
   const instructionSections = parseInstructionSections(markdown);
@@ -128,8 +135,8 @@ function parseRecipeFile(filePath) {
   if (!metadata.status) {
     warnings.push("Missing Status line.");
   }
-  if (!metadata.category) {
-    warnings.push("Missing Category line.");
+  if (metadata.category && normalizeCategory(metadata.category) !== archiveCategory) {
+    warnings.push(`Category line (${normalizeCategory(metadata.category)}) differs from archive folder (${archiveCategory}); using archive folder.`);
   }
   if (!ingredients.length) {
     warnings.push("No ingredient rows parsed.");
@@ -144,7 +151,7 @@ function parseRecipeFile(filePath) {
       title,
       status: normalizeStatus(metadata.status),
       statusLabel: metadata.status || "",
-      category: normalizeCategory(metadata.category || path.basename(path.dirname(filePath))),
+      category: archiveCategory,
       source: metadata["source or inspiration"] || "",
       dateAdded: metadata["date added"] || "",
       lastUpdated: metadata["last updated"] || "",
@@ -166,7 +173,9 @@ function parseRecipeFile(filePath) {
       familyNotes: parseBulletSection(markdown, "Family Notes"),
       versionHistory: parseVersionHistory(markdown),
       archivedMarkdownPath: sourcePath,
-      sourceMarkdown: markdown,
+      sourceMarkdown: normalizeMarkdownMetadata(markdown, {
+        Category: formatCategoryLabel(archiveCategory),
+      }),
       createdAt: "",
       updatedAt: "",
     },
@@ -221,6 +230,45 @@ function normalizeCategory(category) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function formatCategoryLabel(category) {
+  return String(category || "")
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function normalizeMarkdownMetadata(markdown, replacements) {
+  const lines = String(markdown || "").split("\n");
+  const remaining = { ...replacements };
+  const nextLines = lines.map((line) => {
+    const match = line.match(/^([^:\n]+):\s*(.*?)\s*$/);
+    if (!match) {
+      return line;
+    }
+    const key = Object.keys(remaining).find((candidate) => candidate.toLowerCase() === match[1].trim().toLowerCase());
+    if (!key) {
+      return line;
+    }
+    const value = remaining[key];
+    delete remaining[key];
+    return `${match[1].trim()}: ${value}`;
+  });
+
+  const inserts = Object.entries(remaining).map(([key, value]) => `${key}: ${value}`);
+  if (!inserts.length) {
+    return nextLines.join("\n");
+  }
+
+  const headingIndex = nextLines.findIndex((line) => /^#\s+/.test(line));
+  const insertIndex = headingIndex === -1 ? 0 : headingIndex + 1;
+  return [
+    ...nextLines.slice(0, insertIndex),
+    ...inserts,
+    ...nextLines.slice(insertIndex),
+  ].join("\n");
 }
 
 function inferVersion(markdown) {
@@ -533,7 +581,7 @@ function firestoreRecipePayload(recipe, importedAt) {
 async function writeRecipesToFirestore(recipes) {
   const importedAt = new Date().toISOString();
   const { app, db } = await firebaseClient();
-  const [{ deleteApp }, { doc, setDoc, terminate }] = await Promise.all([
+  const [{ deleteApp }, { collection, doc, getDocs, setDoc, terminate }] = await Promise.all([
     import("firebase/app"),
     import("firebase/firestore"),
   ]);
@@ -548,16 +596,39 @@ async function writeRecipesToFirestore(recipes) {
       );
       console.log(`Wrote recipe ${recipe.id}`);
     }
+
+    const snapshot = await getDocs(collection(db, "households", householdId, "recipes"));
+    const localIds = new Set(recipes.map((recipe) => recipe.id));
+    const remoteIds = new Set(snapshot.docs.map((snapshotDoc) => snapshotDoc.id));
+    const missingLocalRecipes = [...localIds].filter((id) => !remoteIds.has(id)).sort();
+    const firebaseOnlyRecipes = [...remoteIds].filter((id) => !localIds.has(id)).sort();
+
+    return {
+      checkedAt: new Date().toISOString(),
+      householdId,
+      localRecipeCount: recipes.length,
+      remoteRecipeCount: remoteIds.size,
+      missingLocalRecipes,
+      firebaseOnlyRecipes,
+    };
   } finally {
     await terminate(db).catch(() => {});
     await deleteApp(app).catch(() => {});
   }
 }
-function buildSummary(parsedRecipes) {
+function buildSummary(parsedRecipes, weeklyFiles = []) {
   const byStatus = {};
   const byCategory = {};
   const duplicateIds = duplicates(parsedRecipes.map((entry) => entry.recipe.id));
   const duplicateTitles = duplicates(parsedRecipes.map((entry) => entry.recipe.title.toLowerCase()));
+  const archiveIds = new Set(parsedRecipes.map((entry) => entry.recipe.id));
+  const weeklyOnlyRecipes = weeklyFiles
+    .map((filePath) => ({
+      id: slugFromPath(filePath),
+      sourcePath: relativePath(filePath),
+      title: titleFromMarkdown(readMarkdown(filePath), path.basename(filePath, ".md")),
+    }))
+    .filter((entry) => !archiveIds.has(entry.id));
 
   for (const entry of parsedRecipes) {
     byStatus[entry.recipe.status] = (byStatus[entry.recipe.status] || 0) + 1;
@@ -571,6 +642,7 @@ function buildSummary(parsedRecipes) {
     byCategory,
     duplicateIds,
     duplicateTitles,
+    weeklyOnlyRecipes,
   };
 }
 
@@ -619,6 +691,34 @@ function renderMarkdownReport(parsedRecipes, summary, jsonPath) {
     lines.push("");
   }
 
+  lines.push("## Weekly Folder Audit", "");
+  lines.push(`- Week-only recipe files missing from archive: ${summary.weeklyOnlyRecipes.length}`);
+  if (summary.weeklyOnlyRecipes.length) {
+    lines.push("");
+    summary.weeklyOnlyRecipes.forEach((entry) => {
+      lines.push(`- ${entry.title} - \`${entry.sourcePath}\``);
+    });
+  }
+  lines.push("");
+
+  if (summary.firestoreAudit) {
+    lines.push("## Firestore Audit", "");
+    lines.push(`- Household: ${summary.firestoreAudit.householdId}`);
+    lines.push(`- Local recipe count: ${summary.firestoreAudit.localRecipeCount}`);
+    lines.push(`- Remote recipe count: ${summary.firestoreAudit.remoteRecipeCount}`);
+    lines.push(`- Missing local recipes in Firestore: ${summary.firestoreAudit.missingLocalRecipes.length}`);
+    lines.push(`- Firebase-only recipes: ${summary.firestoreAudit.firebaseOnlyRecipes.length}`);
+    if (summary.firestoreAudit.missingLocalRecipes.length) {
+      lines.push("", "### Missing Local Recipes", "");
+      summary.firestoreAudit.missingLocalRecipes.forEach((id) => lines.push(`- ${id}`));
+    }
+    if (summary.firestoreAudit.firebaseOnlyRecipes.length) {
+      lines.push("", "### Firebase-Only Recipes", "");
+      summary.firestoreAudit.firebaseOnlyRecipes.forEach((id) => lines.push(`- ${id}`));
+    }
+    lines.push("");
+  }
+
   lines.push("## Recipes", "");
   for (const entry of parsedRecipes) {
     lines.push(`### ${entry.recipe.title}`, "");
@@ -650,7 +750,13 @@ async function main() {
   const reportDate = args.date || new Date().toISOString().slice(0, 10);
   const recipeFiles = walkMarkdownFiles(archiveDir);
   const parsedRecipes = recipeFiles.map(parseRecipeFile);
-  const summary = buildSummary(parsedRecipes);
+  const summary = buildSummary(parsedRecipes, weeklyRecipeFiles());
+  let firestoreAudit = null;
+
+  if (args.write) {
+    firestoreAudit = await writeRecipesToFirestore(parsedRecipes.map((entry) => entry.recipe));
+    summary.firestoreAudit = firestoreAudit;
+  }
 
   fs.mkdirSync(reportsDir, { recursive: true });
   const jsonPath = path.join(reportsDir, `firebase-recipe-import-${reportDate}.json`);
@@ -659,6 +765,7 @@ async function main() {
     generatedAt: new Date().toISOString(),
     dryRun: !args.write,
     summary,
+    firestoreAudit,
     recipes: parsedRecipes.map((entry) => entry.recipe),
     warnings: parsedRecipes
       .filter((entry) => entry.warnings.length)
@@ -673,8 +780,10 @@ async function main() {
   console.log(`Wrote ${relativePath(jsonPath)}`);
   console.log(`Wrote ${relativePath(reportPath)}`);
   if (args.write) {
-    await writeRecipesToFirestore(parsedRecipes.map((entry) => entry.recipe));
     console.log(`Wrote ${summary.recipeCount} recipe document(s) to Firestore.`);
+    console.log(`Firestore recipes checked: ${firestoreAudit.remoteRecipeCount}.`);
+    console.log(`Missing local recipes in Firestore: ${firestoreAudit.missingLocalRecipes.length}.`);
+    console.log(`Firebase-only recipes: ${firestoreAudit.firebaseOnlyRecipes.length}.`);
   } else {
     console.log("Dry run only. Firestore was not changed. Pass --write to seed recipes.");
   }

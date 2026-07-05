@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import {
   addManualGroceryItem,
   clearGroceryState,
+  getGroceryState,
   removeManualGroceryItem,
   saveGroceryState,
   subscribeGroceryState,
@@ -38,6 +39,9 @@ function App() {
   const [installPrompt, setInstallPrompt] = useState(null);
   const [workingWeeks, setWorkingWeeks] = useState([]);
   const [firebaseArchiveDocs, setFirebaseArchiveDocs] = useState([]);
+  const [selectedWeekPlanState, setSelectedWeekPlanState] = useState({ menuRows: [] });
+  const [resyncStatus, setResyncStatus] = useState("");
+  const [resyncingLists, setResyncingLists] = useState(false);
 
   useEffect(() => {
     loadData().then((nextData) => {
@@ -68,7 +72,7 @@ function App() {
     if (!data) {
       return [];
     }
-    return firebaseArchiveDocs.length ? firebaseArchiveDocs : data.archivedRecipes;
+    return mergeArchiveDocs(data.archivedRecipes, firebaseArchiveDocs);
   }, [data, firebaseArchiveDocs]);
 
   const weeks = useMemo(() => {
@@ -77,8 +81,9 @@ function App() {
     }
     return mergeCookbookWeeks(data.weeks, workingWeeks, archiveDocs);
   }, [archiveDocs, data, workingWeeks]);
+  const localFallbackCount = Math.max(archiveDocs.length - firebaseArchiveDocs.length, 0);
   const recipeSourceLabel = firebaseArchiveDocs.length
-    ? `Recipes: Firebase (${firebaseArchiveDocs.length})`
+    ? `Recipes: Firebase (${firebaseArchiveDocs.length})${localFallbackCount ? ` + local fallback (${localFallbackCount})` : ""}`
     : `Recipes: Local fallback (${archiveDocs.length})`;
 
   const selectedWeek = useMemo(() => {
@@ -87,6 +92,41 @@ function App() {
     }
     return weeks.find((week) => week.id === weekId) || weeks[0] || null;
   }, [data, weekId, weeks]);
+
+  useEffect(() => {
+    if (!selectedWeek?.id) {
+      setSelectedWeekPlanState({ menuRows: [] });
+      return undefined;
+    }
+    setSelectedWeekPlanState({ menuRows: [] });
+    return subscribeWeekPlanState(selectedWeek.id, setSelectedWeekPlanState);
+  }, [selectedWeek?.id]);
+
+  const resyncSelectedWeekLists = async () => {
+    if (!selectedWeek) {
+      return;
+    }
+
+    setResyncingLists(true);
+    setResyncStatus("Resyncing lists...");
+    try {
+      const nextWeek = await resyncWeekAssets({
+        archiveDocs,
+        existingGroceryState: await getGroceryState(selectedWeek.id),
+        week: selectedWeek,
+        weekPlanState: selectedWeekPlanState,
+      });
+      if (nextWeek.isWorkingWeek) {
+        setWorkingWeeks((current) => upsertWeek(current, nextWeek));
+        await upsertWorkingWeek(nextWeek);
+      }
+      setResyncStatus(`Resynced ${nextWeek.groceryItems.length} grocery items and ${nextWeek.prepTasks.length} prep tasks.`);
+    } catch (error) {
+      setResyncStatus(`Resync failed: ${error.message}`);
+    } finally {
+      setResyncingLists(false);
+    }
+  };
 
   if (!data) {
     return <div className="empty full-page">Loading cookbook...</div>;
@@ -155,6 +195,17 @@ function App() {
             <h2>{viewTitle(view, selectedWeek)}</h2>
           </div>
           <div className="topbar-actions">
+            {resyncStatus ? <span className="pill">{resyncStatus}</span> : null}
+            {selectedWeek ? (
+              <button
+                className="quiet-button"
+                disabled={resyncingLists}
+                onClick={resyncSelectedWeekLists}
+                type="button"
+              >
+                {resyncingLists ? "Resyncing..." : "Resync Lists"}
+              </button>
+            ) : null}
             {installPrompt ? (
               <button
                 className="quiet-button"
@@ -1676,6 +1727,74 @@ function mergeCookbookWeeks(markdownWeeks, workingWeeks, archiveDocs) {
   return [...markdownWeeks, ...appWeeks].sort(compareWeeks);
 }
 
+function mergeArchiveDocs(localDocs = [], firebaseDocs = []) {
+  if (!firebaseDocs.length) {
+    return localDocs;
+  }
+
+  const docsById = new Map();
+  localDocs.forEach((doc) => docsById.set(doc.id, doc));
+  firebaseDocs.forEach((doc) => docsById.set(doc.id, doc));
+  return [...docsById.values()].sort((first, second) => first.title.localeCompare(second.title));
+}
+
+async function resyncWeekAssets({ archiveDocs, existingGroceryState = {}, week, weekPlanState = {} }) {
+  const menuRows = activeMenuRowsForWeek(week, weekPlanState);
+  const allRecipeDocs = mergeArchiveDocs(week.recipes || [], archiveDocs);
+  const grocerySections = buildGrocerySectionsFromMenuRows(menuRows, allRecipeDocs);
+  const prepSections = buildPrepSectionsFromMenuRows(menuRows, allRecipeDocs);
+  const groceryItems = flattenGrocerySections(grocerySections);
+  const prepTasks = flattenPrepSections(prepSections);
+  const generatedAt = new Date().toISOString();
+  const manualItems = existingGroceryState.manualItems || [];
+  const checkedManualKeys = (existingGroceryState.checkedKeys || []).filter((key) => String(key).startsWith("manual|"));
+  const nextWeek = {
+    ...week,
+    groceryItems,
+    grocerySections,
+    meals: menuRows,
+    menuRows,
+    prepSections,
+    prepTasks,
+    recipePaths: uniqueValues(menuRows.map((row) => row["Recipe path"]).filter(Boolean)),
+    title: week.title || week.packet?.title || week.label,
+    updatedAt: generatedAt,
+  };
+
+  await Promise.all([
+    saveGroceryState(week.id, {
+      checkedKeys: checkedManualKeys,
+      generatedAt,
+      generationSource: "firebase-recipes",
+      generationVersion: "app-week-assets-resync-v1",
+      manualItems,
+      sections: grocerySections,
+    }),
+    savePrepState(week.id, {
+      checkedKeys: [],
+      generatedAt,
+      generationSource: "firebase-recipes",
+      generationVersion: "app-week-assets-resync-v1",
+      sections: prepSections,
+    }),
+  ]);
+
+  return nextWeek;
+}
+
+function activeMenuRowsForWeek(week, weekPlanState = {}) {
+  if (weekPlanState.menuRows?.length) {
+    return weekPlanState.menuRows;
+  }
+  if (week.menuRows?.length) {
+    return week.menuRows;
+  }
+  if (week.meals?.length) {
+    return week.meals;
+  }
+  return week.weeklyMenu || [];
+}
+
 function workingWeekToAppWeek(week, archiveDocs) {
   const menuRows = week.menuRows || [];
   const recipes = uniqueValues(menuRows.map((row) => row["Recipe path"]).filter(Boolean))
@@ -2089,7 +2208,7 @@ function recipeFromMarkdownForSave({ archiveDocs, category, markdown, status, ti
       perishabilityNotes: planningSummary["Perishability notes"] || "",
       bestDayToCook: planningSummary["Best day to cook"] || "",
     },
-    archivedMarkdownPath: `firebase/recipes/${recipeId}.md`,
+    archivedMarkdownPath: `recipe-archive/${normalizedCategory}/${recipeId}.md`,
     sourceMarkdown: normalizeMarkdownForRecipe(markdown, title, status, normalizedCategory),
     createdAt: now,
     updatedAt: now,
@@ -2108,11 +2227,12 @@ function recipeCategoryOptions(archiveDocs) {
 function uniqueRecipeId(baseId, archiveDocs) {
   const usedIds = new Set(archiveDocs.map((doc) => doc.id));
   const usedPaths = new Set(archiveDocs.map((doc) => doc.path));
-  if (!usedIds.has(baseId) && !usedPaths.has(`firebase/recipes/${baseId}.md`)) {
+  const hasUsedPath = (id) => [...usedPaths].some((usedPath) => usedPath.endsWith(`/${id}.md`));
+  if (!usedIds.has(baseId) && !hasUsedPath(baseId)) {
     return baseId;
   }
   let index = 2;
-  while (usedIds.has(`${baseId}-${index}`) || usedPaths.has(`firebase/recipes/${baseId}-${index}.md`)) {
+  while (usedIds.has(`${baseId}-${index}`) || hasUsedPath(`${baseId}-${index}`)) {
     index += 1;
   }
   return `${baseId}-${index}`;
@@ -2124,19 +2244,32 @@ function normalizeMarkdownForRecipe(markdown, title, status, category) {
   const lines = withTitle.split("\n");
   const firstHeadingIndex = lines.findIndex((line) => /^#\s+/.test(line));
   const insertIndex = firstHeadingIndex === -1 ? 0 : firstHeadingIndex + 1;
-  const hasStatus = /^Status:\s*/im.test(withTitle);
-  const hasCategory = /^Category:\s*/im.test(withTitle);
+  const statusLine = `Status: ${status === "stage-2" ? "Stage 2 - Promoted family recipe" : "Stage 1 - Draft / testing"}`;
+  const categoryLine = `Category: ${formatCategoryLabel(category)}`;
+  let hasStatus = false;
+  let hasCategory = false;
+  const normalizedLines = lines.map((line) => {
+    if (/^Status:\s*/i.test(line)) {
+      hasStatus = true;
+      return statusLine;
+    }
+    if (/^Category:\s*/i.test(line)) {
+      hasCategory = true;
+      return categoryLine;
+    }
+    return line;
+  });
   const inserts = [
-    hasStatus ? "" : `Status: ${status === "stage-2" ? "Stage 2 - Promoted family recipe" : "Stage 1 - Draft / testing"}`,
-    hasCategory ? "" : `Category: ${category}`,
+    hasStatus ? "" : statusLine,
+    hasCategory ? "" : categoryLine,
   ].filter(Boolean);
   if (!inserts.length) {
-    return withTitle;
+    return normalizedLines.join("\n").replace(/\n{3,}/g, "\n\n");
   }
   return [
-    ...lines.slice(0, insertIndex),
+    ...normalizedLines.slice(0, insertIndex),
     ...inserts,
-    ...lines.slice(insertIndex),
+    ...normalizedLines.slice(insertIndex),
   ].join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
@@ -2248,6 +2381,10 @@ function normalizeRecipeCategory(value) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function formatCategoryLabel(value) {
+  return formatFolderName(normalizeRecipeCategory(value));
 }
 
 function slugFromTitle(value) {
@@ -2964,10 +3101,8 @@ function buildArchiveDirectories(docs) {
   docs.forEach((doc) => {
     const parts = doc.path.split("/");
     const fileName = parts.pop();
-    let folderParts = parts;
-    if (folderParts[0] === "recipe-archive") {
-      folderParts = folderParts.slice(1);
-    }
+    const category = archiveCategoryForDoc(doc);
+    const folderParts = category ? [category] : archiveFolderParts(parts);
     const id = folderParts.join("/") || "root";
     const label = folderParts.length ? folderParts.map(formatFolderName).join(" / ") : "Recipe Archive";
     if (!directories.has(id)) {
@@ -2983,6 +3118,20 @@ function buildArchiveDirectories(docs) {
     }))
     .filter((directory) => directory.docs.length)
     .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function archiveCategoryForDoc(doc) {
+  if (doc.type === "firebase-recipe") {
+    return normalizeRecipeCategory(doc.recipe?.category || pathCategory(doc.path));
+  }
+  return normalizeRecipeCategory(pathCategory(doc.path) || doc.recipe?.category);
+}
+
+function archiveFolderParts(parts) {
+  if (parts[0] === "recipe-archive") {
+    return parts.slice(1);
+  }
+  return parts;
 }
 
 function formatFolderName(value) {
