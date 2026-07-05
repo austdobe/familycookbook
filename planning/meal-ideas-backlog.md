@@ -11,7 +11,7 @@ Use this file for ideas before they become Stage 1 drafts.
 
 ## Ideas
 
-| Idea | Protein | Cuisine/flavor | Why it fits | Draft recipe file |
+| Idea | Protein | Cuisine/flavor | Why it fits | Recipe file |
 |---|---|---|---|---|
 |  |  |  |  |  |
 

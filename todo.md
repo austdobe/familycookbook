@@ -41,7 +41,7 @@ npm.cmd run migrate:firebase -- --dry-run
 ### Current Data Flow
 
 - Recipes remain Markdown-first.
-- New generated recipes should start in `recipe-archive/drafts/`.
+- New generated recipes should start as Stage 1 drafts in the best matching `recipe-archive/<category>/` folder.
 - App-created planning weeks save operational snapshots to Firebase.
 - Unified week snapshots live in Firebase `weeks/{weekId}`.
 - Grocery and prep state also remain available in week-specific Firebase documents for the current UI.

@@ -16,14 +16,14 @@
     "deploy:pages": "node scripts/deploy-github-pages.js",
     "apply:feedback": "node scripts/apply-recipe-feedback.js",
     "sync:feedback": "node scripts/sync-recipe-feedback.js",
-    "migrate:firebase": "node scripts/migrate-week-lists-to-firebase.js"
+    "migrate:firebase": "node scripts/migrate-week-lists-to-firebase.js",
+    "import:recipes": "node scripts/import-recipes-to-firebase.js"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.0",
     "firebase": "^12.0.0",
-    "vite": "^7.0.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
-  },
-  "devDependencies": {}
+    "react-dom": "^19.0.0",
+    "vite": "^7.0.0"
+  }
 }

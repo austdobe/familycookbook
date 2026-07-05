@@ -45,6 +45,11 @@
   padding: 8px 14px;
 }
 
+.primary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
 .icon-button {
   align-items: center;
   background: #ffffff;
@@ -77,6 +82,21 @@
   color: var(--muted);
   font-size: 14px;
   margin-top: 3px;
+}
+
+.recipe-lifecycle {
+  background: #f8faf9;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.lifecycle-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .week-planner {
@@ -134,6 +154,70 @@
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px;
+}
+
+.recipe-intake {
+  display: grid;
+  gap: 12px;
+}
+
+.recipe-intake-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.recipe-intake-header h3,
+.recipe-intake-header p {
+  margin: 0;
+}
+
+.recipe-intake-header p {
+  color: var(--muted);
+  font-size: 14px;
+  margin-top: 3px;
+}
+
+.recipe-intake-form {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+}
+
+.recipe-intake-form label {
+  display: grid;
+  font-weight: 700;
+  gap: 6px;
+}
+
+.recipe-intake-form input,
+.recipe-intake-form select,
+.recipe-intake-form textarea {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  font: inherit;
+  max-width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  width: 100%;
+}
+
+.recipe-intake-form textarea {
+  line-height: 1.45;
+  min-height: 260px;
+  resize: vertical;
+}
+
+.recipe-intake-grid {
+  grid-template-columns: minmax(0, 1.4fr) minmax(180px, 0.6fr);
+}
+
+.recipe-intake-actions {
+  align-items: center;
 }
 
 .recipe-feedback label {
@@ -768,6 +852,21 @@
   .week-planner-actions .primary-button,
   .week-planner-actions .quiet-button {
     width: 100%;
+  }
+
+  .recipe-intake-header,
+  .recipe-intake-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .recipe-intake-header .quiet-button,
+  .recipe-intake-actions .primary-button {
+    width: 100%;
+  }
+
+  .recipe-intake-grid {
+    grid-template-columns: 1fr;
   }
 
   .prep-toolbar {

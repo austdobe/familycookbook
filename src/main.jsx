@@ -4,13 +4,15 @@ import {
   addManualGroceryItem,
   clearGroceryState,
   removeManualGroceryItem,
+  saveGroceryState,
   subscribeGroceryState,
   toggleGroceryItem,
   updateManualGroceryItem,
 } from "./services/groceryStore.js";
 import { markdownToHtml } from "./services/markdown.js";
-import { clearPrepState, subscribePrepState, togglePrepTask } from "./services/prepStore.js";
+import { clearPrepState, savePrepState, subscribePrepState, togglePrepTask } from "./services/prepStore.js";
 import { saveRecipeFeedback, subscribeRecipeFeedback } from "./services/recipeFeedbackStore.js";
+import { saveRecipe, subscribeRecipes } from "./services/recipeStore.js";
 import { formatQuantity } from "./services/units.js";
 import { subscribeWeekPlanState } from "./services/weekPlanStore.js";
 import { subscribeWorkingWeeks, upsertWeek, upsertWorkingWeek } from "./services/workingWeeksStore.js";
@@ -35,6 +37,7 @@ function App() {
   const [search, setSearch] = useState("");
   const [installPrompt, setInstallPrompt] = useState(null);
   const [workingWeeks, setWorkingWeeks] = useState([]);
+  const [firebaseArchiveDocs, setFirebaseArchiveDocs] = useState([]);
 
   useEffect(() => {
     loadData().then((nextData) => {
@@ -44,6 +47,8 @@ function App() {
   }, []);
 
   useEffect(() => subscribeWorkingWeeks(setWorkingWeeks), []);
+
+  useEffect(() => subscribeRecipes(setFirebaseArchiveDocs), []);
 
   useEffect(() => {
     if ("serviceWorker" in navigator) {
@@ -59,12 +64,22 @@ function App() {
     return () => window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
   }, []);
 
+  const archiveDocs = useMemo(() => {
+    if (!data) {
+      return [];
+    }
+    return firebaseArchiveDocs.length ? firebaseArchiveDocs : data.archivedRecipes;
+  }, [data, firebaseArchiveDocs]);
+
   const weeks = useMemo(() => {
     if (!data) {
       return [];
     }
-    return mergeCookbookWeeks(data.weeks, workingWeeks, data.archivedRecipes);
-  }, [data, workingWeeks]);
+    return mergeCookbookWeeks(data.weeks, workingWeeks, archiveDocs);
+  }, [archiveDocs, data, workingWeeks]);
+  const recipeSourceLabel = firebaseArchiveDocs.length
+    ? `Recipes: Firebase (${firebaseArchiveDocs.length})`
+    : `Recipes: Local fallback (${archiveDocs.length})`;
 
   const selectedWeek = useMemo(() => {
     if (!data) {
@@ -130,7 +145,7 @@ function App() {
           value={search}
         />
 
-        <div className="sync-note">Build {appVersion} | Data built {formatDateTime(data.generatedAt)}</div>
+        <div className="sync-note">Build {appVersion} | Data built {formatDateTime(data.generatedAt)} | {recipeSourceLabel}</div>
       </aside>
 
       <main className="main-content">
@@ -167,7 +182,7 @@ function App() {
           {view === "week" ? (
             <WeekView
               activeDocId={activeDocId}
-              archiveDocs={data.archivedRecipes}
+              archiveDocs={archiveDocs}
               ingredientMode={ingredientMode}
               search={search}
               setActiveDocId={setActiveDocId}
@@ -179,9 +194,9 @@ function App() {
           ) : null}
           {view === "recipes" ? (
             <ArchiveView
-              archiveDocs={data.archivedRecipes}
+              archiveDocs={archiveDocs}
               activeDocId={activeDocId}
-              docs={filterDocs(data.archivedRecipes, search)}
+              docs={filterDocs(archiveDocs, search)}
               ingredientMode={ingredientMode}
               onSaveWorkingWeek={async (weekPlan) => {
                 setWorkingWeeks((current) => upsertWeek(current, weekPlan));
@@ -263,7 +278,7 @@ function WeekView({ activeDocId, archiveDocs, ingredientMode, search, setActiveD
           <div className="section-actions">
             <IngredientDetailToggle mode={ingredientMode} setMode={setIngredientMode} />
             <QuantityUnitToggle mode={unitMode} setMode={setUnitMode} />
-            <span className="pill">{selectedDoc ? "Stage 1 draft" : "No draft"}</span>
+            <span className="pill">{selectedDoc ? stageForDoc(selectedDoc) || "Recipe" : "No draft"}</span>
           </div>
         </div>
         <MarkdownDoc
@@ -278,10 +293,16 @@ function WeekView({ activeDocId, archiveDocs, ingredientMode, search, setActiveD
 }
 
 function RecipeFeedbackPanel({ recipe }) {
-  const [feedback, setFeedback] = useState({ ingredientChanges: [], rating: "", notes: "" });
+  const [feedback, setFeedback] = useState(emptyRecipeFeedback());
   const [ingredientDraft, setIngredientDraft] = useState(emptyIngredientDraft());
   const [status, setStatus] = useState("");
   const ingredientRows = useMemo(() => extractIngredientRows(recipe.markdown), [recipe.markdown]);
+  const recipeRecord = recipe.recipe || {};
+  const cookedCount = Number(recipeRecord.cookedCount || feedback.cookedCount || 0);
+  const lastCookedAt = recipeRecord.lastCookedAt || feedback.cookedAt || "";
+  const promotedAt = recipeRecord.promotedAt || feedback.promotedAt || "";
+  const isCooked = Boolean(lastCookedAt || cookedCount > 0);
+  const isPromoted = recipeRecord.status === "stage-2" || stageForDoc(recipe) === "Stage 2";
 
   useEffect(() => {
     setStatus("");
@@ -290,6 +311,61 @@ function RecipeFeedbackPanel({ recipe }) {
   }, [recipe.id]);
 
   const ingredientChanges = Array.isArray(feedback.ingredientChanges) ? feedback.ingredientChanges : [];
+  const markCooked = async () => {
+    const cookedAt = feedback.cookedAt || formatInputDate(new Date());
+    const nextFeedback = {
+      ...feedback,
+      cookedAt,
+      cookedCount: cookedCount + 1,
+      recipePath: recipe.path,
+    };
+    const nextRecipe = recipeSavePayloadFromDoc(recipe, {
+      cookedCount: cookedCount + 1,
+      lastCookedAt: cookedAt,
+    });
+    setFeedback(nextFeedback);
+    await Promise.all([
+      saveRecipeFeedback(recipe.id, recipe.path, nextFeedback),
+      saveRecipe(nextRecipe),
+    ]);
+    setStatus(`Marked cooked on ${cookedAt}`);
+  };
+  const promoteRecipe = async () => {
+    const promotedDate = formatInputDate(new Date());
+    const cookedAt = lastCookedAt || feedback.cookedAt || promotedDate;
+    const nextFeedback = {
+      ...feedback,
+      cookedAt,
+      cookedCount: Math.max(cookedCount, 1),
+      promotedAt: promotedDate,
+      promotionNotes: feedback.promotionNotes || feedback.notes || "",
+      recipePath: recipe.path,
+    };
+    const nextRecipe = recipeSavePayloadFromDoc(recipe, {
+      cookedCount: Math.max(cookedCount, 1),
+      lastCookedAt: cookedAt,
+      promotedAt: promotedDate,
+      promotionNotes: nextFeedback.promotionNotes,
+      status: "stage-2",
+      statusLabel: "Stage 2 - Promoted family recipe",
+      sourceMarkdown: updateRecipeMarkdownStatus(recipe.markdown, "stage-2"),
+      versionHistory: [
+        ...(recipeRecord.versionHistory || []),
+        {
+          date: promotedDate,
+          version: recipeRecord.version || "1.0",
+          change: "Promoted to Stage 2 from family feedback.",
+          result: [feedback.rating, nextFeedback.promotionNotes].filter(Boolean).join(" - "),
+        },
+      ],
+    });
+    setFeedback(nextFeedback);
+    await Promise.all([
+      saveRecipeFeedback(recipe.id, recipe.path, nextFeedback),
+      saveRecipe(nextRecipe),
+    ]);
+    setStatus(`Promoted to Stage 2 on ${promotedDate}`);
+  };
 
   return (
     <form
@@ -297,12 +373,52 @@ function RecipeFeedbackPanel({ recipe }) {
       onSubmit={async (event) => {
         event.preventDefault();
         await saveRecipeFeedback(recipe.id, recipe.path, feedback);
+        if (feedback.cookedAt || feedback.promotedAt) {
+          await saveRecipe(recipeSavePayloadFromDoc(recipe, {
+            cookedCount,
+            lastCookedAt: feedback.cookedAt || lastCookedAt,
+            promotedAt: feedback.promotedAt || promotedAt,
+            promotionNotes: feedback.promotionNotes || "",
+          }));
+        }
         setStatus("Saved");
       }}
     >
       <div>
         <h3>Family Feedback</h3>
-        <p>Saved here first. Apply approved notes to Markdown with `npm.cmd run apply:feedback`.</p>
+        <p>Saved to Firebase for cooking history, repeat decisions, and recipe improvements.</p>
+      </div>
+      <div className="recipe-lifecycle">
+        <div className="lifecycle-pills">
+          <span className="pill">{isCooked ? `Cooked ${cookedCount} time${cookedCount === 1 ? "" : "s"}` : "Not cooked yet"}</span>
+          {lastCookedAt ? <span className="pill">Last cooked {lastCookedAt}</span> : null}
+          {isPromoted ? <span className="pill">Stage 2 keeper{promotedAt ? ` ${promotedAt}` : ""}</span> : null}
+        </div>
+        <label>
+          Cooked on
+          <input
+            onChange={(event) => setFeedback({ ...feedback, cookedAt: event.target.value })}
+            type="date"
+            value={feedback.cookedAt || lastCookedAt || formatInputDate(new Date())}
+          />
+        </label>
+        <label>
+          Promotion notes
+          <textarea
+            onChange={(event) => setFeedback({ ...feedback, promotionNotes: event.target.value })}
+            placeholder="Why this is a keeper, what version notes matter, or what still needs adjusting."
+            rows="3"
+            value={feedback.promotionNotes || ""}
+          />
+        </label>
+        <div className="feedback-actions">
+          <button className="quiet-button" onClick={markCooked} type="button">
+            {isCooked ? "Record Cooked Again" : "Mark Cooked"}
+          </button>
+          <button className="primary-button" disabled={isPromoted} onClick={promoteRecipe} type="button">
+            {isPromoted ? "Already Stage 2" : "Promote to Stage 2"}
+          </button>
+        </div>
       </div>
       <label>
         Rating
@@ -438,7 +554,46 @@ function RecipeFeedbackPanel({ recipe }) {
     </form>
   );
 }
+function emptyRecipeFeedback() {
+  return {
+    cookedAt: "",
+    cookedCount: 0,
+    ingredientChanges: [],
+    notes: "",
+    promotedAt: "",
+    promotionNotes: "",
+    rating: "",
+    updatedAt: "",
+  };
+}
 
+function recipeSavePayloadFromDoc(doc, patch = {}) {
+  const existingRecipe = doc.recipe || {};
+  return {
+    ...existingRecipe,
+    archivedMarkdownPath: existingRecipe.archivedMarkdownPath || doc.path,
+    id: existingRecipe.id || doc.id,
+    sourceMarkdown: existingRecipe.sourceMarkdown || doc.markdown,
+    title: existingRecipe.title || doc.title,
+    ...patch,
+  };
+}
+
+function updateRecipeMarkdownStatus(markdown, status) {
+  const statusLabel = status === "stage-2" ? "Stage 2 - Promoted family recipe" : "Stage 1 - Draft / testing";
+  const text = String(markdown || "").replace(/\r\n/g, "\n");
+  if (/^Status:\s*.+$/im.test(text)) {
+    return text.replace(/^Status:\s*.+$/im, `Status: ${statusLabel}`);
+  }
+  const lines = text.split("\n");
+  const headingIndex = lines.findIndex((line) => /^#\s+/.test(line));
+  const insertIndex = headingIndex === -1 ? 0 : headingIndex + 1;
+  return [
+    ...lines.slice(0, insertIndex),
+    `Status: ${statusLabel}`,
+    ...lines.slice(insertIndex),
+  ].join("\n").replace(/\n{3,}/g, "\n\n");
+}
 function emptyIngredientDraft() {
   return {
     alternatives: "",
@@ -972,13 +1127,17 @@ function ArchiveView({
 
   return (
     <div className="stack">
-        <CreateWeeklyMenuPanel
-          activeDocId={activeDocId}
-          archiveDocs={archiveDocs}
-          onSaveWorkingWeek={onSaveWorkingWeek}
-          weeks={weeks}
-          workingWeeks={workingWeeks}
-        />
+      <RecipeIntakePanel
+        archiveDocs={archiveDocs}
+        onSaved={(recipeDoc) => setActiveDocId(recipeDoc.id)}
+      />
+      <CreateWeeklyMenuPanel
+        activeDocId={activeDocId}
+        archiveDocs={archiveDocs}
+        onSaveWorkingWeek={onSaveWorkingWeek}
+        weeks={weeks}
+        workingWeeks={workingWeeks}
+      />
       <div className="split-view">
         <div className="archive-browser">
           {directories.length ? (
@@ -1019,6 +1178,116 @@ function ArchiveView({
         </div>
       </div>
     </div>
+  );
+}
+
+function RecipeIntakePanel({ archiveDocs, onSaved }) {
+  const [expanded, setExpanded] = useState(false);
+  const [title, setTitle] = useState("");
+  const [category, setCategory] = useState("chicken");
+  const [status, setStatus] = useState("stage-1");
+  const [markdown, setMarkdown] = useState("");
+  const [saveStatus, setSaveStatus] = useState("");
+  const categoryOptions = useMemo(() => recipeCategoryOptions(archiveDocs), [archiveDocs]);
+
+  const updateMarkdown = (value) => {
+    setMarkdown(value);
+    if (!title.trim()) {
+      const inferredTitle = titleFromMarkdown(value);
+      if (inferredTitle) {
+        setTitle(inferredTitle);
+      }
+    }
+  };
+
+  const savePastedRecipe = async (event) => {
+    event.preventDefault();
+    const finalTitle = title.trim() || titleFromMarkdown(markdown);
+    if (!finalTitle || !markdown.trim()) {
+      setSaveStatus("Add a title and pasted recipe before saving.");
+      return;
+    }
+
+    setSaveStatus("Saving recipe...");
+    try {
+      const recipe = recipeFromMarkdownForSave({
+        archiveDocs,
+        category,
+        markdown,
+        status,
+        title: finalTitle,
+      });
+      const savedRecipe = await saveRecipe(recipe);
+      setSaveStatus(`Saved ${savedRecipe.title} to Firebase.`);
+      setTitle("");
+      setMarkdown("");
+      setStatus("stage-1");
+      setCategory(categoryOptions[0] || "chicken");
+      setExpanded(false);
+      onSaved?.({ id: savedRecipe.id });
+    } catch (error) {
+      setSaveStatus(`Recipe save failed: ${error.message}`);
+    }
+  };
+
+  return (
+    <section className="card recipe-intake">
+      <div className="recipe-intake-header">
+        <div>
+          <h3>Add Recipe</h3>
+          <p>Paste a generated recipe and save it directly as a Firebase-backed Stage 1 recipe.</p>
+        </div>
+        <button className="quiet-button" onClick={() => setExpanded((current) => !current)} type="button">
+          {expanded ? "Close" : "Paste Recipe"}
+        </button>
+      </div>
+      {expanded ? (
+        <form className="recipe-intake-form" onSubmit={savePastedRecipe}>
+          <div className="manual-grocery-grid recipe-intake-grid">
+            <label>
+              Title
+              <input
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="Jamaican Jerk Chicken"
+                value={title}
+              />
+            </label>
+            <label>
+              Category
+              <input
+                list="recipe-category-options"
+                onChange={(event) => setCategory(event.target.value)}
+                placeholder="chicken"
+                value={category}
+              />
+              <datalist id="recipe-category-options">
+                {categoryOptions.map((option) => <option key={option} value={option} />)}
+              </datalist>
+            </label>
+          </div>
+          <label>
+            Status
+            <select onChange={(event) => setStatus(event.target.value)} value={status}>
+              <option value="stage-1">Stage 1 - Draft / testing</option>
+              <option value="stage-2">Stage 2 - Promoted family recipe</option>
+            </select>
+          </label>
+          <label>
+            Recipe Markdown
+            <textarea
+              onChange={(event) => updateMarkdown(event.target.value)}
+              placeholder="# Jamaican Jerk Chicken..."
+              rows="12"
+              value={markdown}
+            />
+          </label>
+          <div className="dialog-actions recipe-intake-actions">
+            {saveStatus ? <span className="pill">{saveStatus}</span> : null}
+            <button className="primary-button" type="submit">Save Recipe</button>
+          </div>
+        </form>
+      ) : null}
+    </section>
   );
 }
 
@@ -1130,7 +1399,7 @@ function CreateWeeklyMenuPanel({ activeDocId, archiveDocs, onSaveWorkingWeek, we
       : createWorkingWeekShell({ startDate, weekNumber, year });
     const menuRows = draftRows.length ? draftRows : createBlankMenuRows(dayOptions);
     const grocerySections = buildGrocerySectionsFromMenuRows(menuRows, archiveDocs);
-    const prepSections = buildPrepSectionsFromMenuRows(menuRows);
+    const prepSections = buildPrepSectionsFromMenuRows(menuRows, archiveDocs);
     const nextWeek = {
       ...baseWeek,
       endDate: weekEndDate(baseWeek.startDate),
@@ -1144,7 +1413,25 @@ function CreateWeeklyMenuPanel({ activeDocId, archiveDocs, onSaveWorkingWeek, we
       title: baseWeek.title || baseWeek.label,
     };
 
-    await onSaveWorkingWeek(nextWeek);
+    const generatedAt = new Date().toISOString();
+    await Promise.all([
+      onSaveWorkingWeek(nextWeek),
+      saveGroceryState(nextWeek.id, {
+        checkedKeys: [],
+        generatedAt,
+        generationSource: "firebase-recipes",
+        generationVersion: "app-week-assets-v1",
+        manualItems: [],
+        sections: grocerySections,
+      }),
+      savePrepState(nextWeek.id, {
+        checkedKeys: [],
+        generatedAt,
+        generationSource: "firebase-recipes",
+        generationVersion: "app-week-assets-v1",
+        sections: prepSections,
+      }),
+    ]);
     setStatus(`Saved ${menuRows.filter(hasMeal).length} meal${menuRows.filter(hasMeal).length === 1 ? "" : "s"} to ${nextWeek.label}`);
     setDialogOpen(false);
   };
@@ -1412,7 +1699,7 @@ function workingWeekToAppWeek(week, archiveDocs) {
     recipes,
     weeklyMenu: menuRows,
     grocerySections: week.grocerySections || buildGrocerySectionsFromMenuRows(menuRows, archiveDocs),
-    prepSections: week.prepSections || buildPrepSectionsFromMenuRows(menuRows),
+    prepSections: week.prepSections || buildPrepSectionsFromMenuRows(menuRows, archiveDocs),
   };
 }
 
@@ -1451,7 +1738,7 @@ function buildGrocerySectionsFromMenuRows(menuRows, archiveDocs) {
     if (!doc) {
       return;
     }
-    extractIngredientTableRows(doc.markdown).forEach((ingredientRow) => {
+    ingredientRowsForDoc(doc).forEach((ingredientRow) => {
       const item = ingredientRow.Ingredient || ingredientRow.Item || "";
       if (!item) {
         return;
@@ -1570,25 +1857,173 @@ function parseQuantityParts(value) {
   return { quantity: match[1], unit: match[2] || "" };
 }
 
-function buildPrepSectionsFromMenuRows(menuRows) {
+function buildPrepSectionsFromMenuRows(menuRows, archiveDocs = []) {
   const rows = menuRows.filter(hasMeal);
   if (!rows.length) {
     return [];
   }
 
-  return [{
-    title: "Weekly Recipe Prep",
-    markdown: rows.map((row) => [
-      `- [ ] Review and prep ${row.Meal}.`,
-      `  - Ingredients: Use the generated grocery list and recipe ingredient table.`,
-      `  - Instructions: Read the recipe, thaw or purchase the protein, and prep vegetables or sauces that hold well.`,
-      `  - Storage method: Covered containers in refrigerator unless the recipe says otherwise.`,
-      `  - Use-by date: ${row.Day || "Planned cook day"}.`,
-      `  - Meal ownership: ${row.Meal}.`,
-    ].join("\n")).join("\n"),
-  }];
+  const tasks = rows.flatMap((row) => prepTasksForMenuRow(row, archiveDocs));
+  const sections = [
+    "Start-of-Week Prep",
+    "Midweek Refresh",
+    "Cook-Day Reminders",
+    "Do Not Prep Ahead",
+  ].map((title) => ({
+    title,
+    tasks: tasks.filter((task) => task.section === title),
+  })).filter((section) => section.tasks.length);
+
+  return sections.map((section) => ({
+    title: section.title,
+    markdown: section.tasks.map(renderPrepTaskMarkdown).join("\n"),
+  }));
 }
 
+function prepTasksForMenuRow(row, archiveDocs) {
+  const doc = findRecipeDocForMenuRow(row, archiveDocs);
+  const recipe = doc?.recipe || null;
+  const meal = row.Meal || doc?.title || "Planned meal";
+  const useByDate = row.Day || recipe?.bestDayToCook || "Planned cook day";
+  const dayIndex = weekdayIndex(useByDate);
+  const tasks = [];
+
+  if (!recipe) {
+    return [prepTask({
+      ingredients: "Recipe ingredients",
+      instructions: "Review the recipe and prep only items that hold safely before cooking.",
+      meal,
+      section: "Cook-Day Reminders",
+      storageMethod: "Keep refrigerated items cold and shelf-stable items grouped together.",
+      title: `Review prep needs for ${meal}`,
+      useByDate,
+    })];
+  }
+
+  const proteinIngredients = ingredientsByKind(recipe, "protein");
+  const sturdyProduce = ingredientsByKind(recipe, "sturdy-produce");
+  const delicateItems = ingredientsByKind(recipe, "delicate");
+  const prepAheadIdeas = recipe.prepGuidance?.prepAheadIdeas?.length
+    ? recipe.prepGuidance.prepAheadIdeas
+    : [recipe.notes?.prepAhead].filter(Boolean);
+  const earlySection = dayIndex <= 2 ? "Start-of-Week Prep" : "Midweek Refresh";
+  const prepSection = dayIndex <= 3 ? "Start-of-Week Prep" : "Midweek Refresh";
+
+  if (proteinIngredients.length) {
+    tasks.push(prepTask({
+      ingredients: ingredientNames(proteinIngredients),
+      instructions: dayIndex <= 2
+        ? "Confirm protein is purchased, portioned, and ready for the planned cook day. If frozen, thaw in the refrigerator."
+        : "Move frozen protein to the refrigerator early enough to thaw safely before cooking.",
+      meal,
+      section: earlySection,
+      storageMethod: "Covered container or original sealed package in refrigerator below ready-to-eat foods.",
+      title: `Confirm protein for ${meal}`,
+      useByDate,
+    }));
+  }
+
+  prepAheadIdeas.forEach((idea) => {
+    tasks.push(prepTask({
+      ingredients: relevantIngredientList(recipe, idea),
+      instructions: idea,
+      meal,
+      section: prepSection,
+      storageMethod: "Covered container in refrigerator unless the recipe says otherwise.",
+      title: `Prep ahead for ${meal}`,
+      useByDate,
+    }));
+  });
+
+  if (sturdyProduce.length) {
+    tasks.push(prepTask({
+      ingredients: ingredientNames(sturdyProduce),
+      instructions: "Wash, trim, chop, or portion sturdy vegetables that hold well after cutting.",
+      meal,
+      section: prepSection,
+      storageMethod: "Covered container with a dry paper towel if moisture could soften vegetables.",
+      title: `Prep sturdy produce for ${meal}`,
+      useByDate,
+    }));
+  }
+
+  tasks.push(prepTask({
+    ingredients: ingredientNames((recipe.ingredients || []).slice(0, 10)) || "Recipe ingredients",
+    instructions: "Read the recipe, confirm ingredients are purchased, and group shelf-stable components together for faster cooking.",
+    meal,
+    section: "Cook-Day Reminders",
+    storageMethod: "Shelf-stable items grouped together; refrigerated items kept cold until cooking.",
+    title: `Stage ingredients for ${meal}`,
+    useByDate,
+  }));
+
+  if (delicateItems.length || recipe.perishabilityNotes) {
+    tasks.push(prepTask({
+      ingredients: ingredientNames(delicateItems) || "Delicate or texture-sensitive ingredients",
+      instructions: recipe.perishabilityNotes || "Do not cut, salt, or mix delicate fresh components too early; prep close to serving for best texture.",
+      meal,
+      section: "Do Not Prep Ahead",
+      storageMethod: "Keep whole and refrigerated until cook day.",
+      title: `Hold delicate prep for ${meal}`,
+      useByDate,
+    }));
+  }
+
+  return tasks;
+}
+
+function prepTask({ ingredients, instructions, meal, section, storageMethod, title, useByDate }) {
+  return { ingredients, instructions, meal, section, storageMethod, title, useByDate };
+}
+
+function renderPrepTaskMarkdown(task) {
+  return [
+    `- [ ] ${task.title}.`,
+    `  - Ingredients: ${task.ingredients || "Recipe ingredients"}.`,
+    `  - Instructions: ${task.instructions || "Read the recipe and prep only what holds well."}.`,
+    `  - Storage method: ${task.storageMethod || "Covered container in refrigerator unless the recipe says otherwise."}.`,
+    `  - Use-by date: ${task.useByDate || "Planned cook day"}.`,
+    `  - Meal ownership: ${task.meal || "Planned meal"}.`,
+  ].join("\n");
+}
+
+function ingredientsByKind(recipe, kind) {
+  return (recipe.ingredients || []).filter((ingredient) => {
+    const item = ingredient.item || "";
+    const words = new Set(groceryItemWords(item));
+    if (kind === "protein") {
+      return ["chicken", "beef", "steak", "pork", "salmon", "turkey", "ham", "shrimp", "fish", "sausage"].some((word) => words.has(word));
+    }
+    if (kind === "delicate") {
+      return ["avocado", "basil", "cilantro", "cucumber", "lettuce", "lime", "mango", "parsley", "pineapple", "romaine", "tomato", "yogurt"].some((word) => words.has(word));
+    }
+    if (kind === "sturdy-produce") {
+      return (ingredient.groceryCategory === "Produce" || grocerySectionForItem(item) === "Produce")
+        && !ingredientsByKind({ ingredients: [ingredient] }, "delicate").length;
+    }
+    return false;
+  });
+}
+
+function relevantIngredientList(recipe, text) {
+  const words = new Set(groceryItemWords(text));
+  const matches = (recipe.ingredients || [])
+    .filter((ingredient) => groceryItemWords(ingredient.item).some((word) => words.has(word)))
+    .map((ingredient) => ingredient.item)
+    .filter(Boolean);
+  return matches.length ? matches.join(", ") : ingredientNames((recipe.ingredients || []).slice(0, 8));
+}
+
+function ingredientNames(ingredients) {
+  return ingredients.map((ingredient) => ingredient.item || ingredient.Ingredient || ingredient.Item || "").filter(Boolean).join(", ");
+}
+
+function weekdayIndex(value) {
+  const text = String(value || "").toLowerCase();
+  const days = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  const index = days.findIndex((day) => text.includes(day));
+  return index === -1 ? 3 : index;
+}
 function grocerySectionForItem(item) {
   const words = new Set(groceryItemWords(item));
   const hasAny = (values) => values.some((value) => words.has(value));
@@ -1614,6 +2049,248 @@ function grocerySectionForItem(item) {
   return "Other";
 }
 
+function recipeFromMarkdownForSave({ archiveDocs, category, markdown, status, title }) {
+  const now = new Date().toISOString();
+  const normalizedCategory = normalizeRecipeCategory(category || "uncategorized");
+  const recipeId = uniqueRecipeId(slugFromTitle(title), archiveDocs);
+  const planningSummary = labeledBulletValues(markdown, "Planning Summary");
+  const notes = labeledBulletValues(markdown, "Notes");
+  return {
+    id: recipeId,
+    title,
+    status,
+    statusLabel: status === "stage-2" ? "Stage 2 - Promoted family recipe" : "Stage 1 - Draft / testing",
+    category: normalizedCategory,
+    source: topMetadataValue(markdown, "Source or inspiration"),
+    dateAdded: topMetadataValue(markdown, "Date added") || now.slice(0, 10),
+    lastUpdated: now.slice(0, 10),
+    version: "1.0",
+    servings: numericValue(planningSummary.Servings),
+    estimatedPrepMinutes: minutesValue(planningSummary["Estimated prep time"]),
+    estimatedCookMinutes: minutesValue(planningSummary["Estimated cook time"]),
+    protein: planningSummary.Protein || "",
+    cuisine: planningSummary["Cuisine or flavor direction"] || "",
+    bestDayToCook: planningSummary["Best day to cook"] || "",
+    perishabilityNotes: planningSummary["Perishability notes"] || "",
+    difficulty: planningSummary.Difficulty || "",
+    equipment: bulletItems(markdown, "Equipment"),
+    ingredients: structuredIngredientsFromMarkdown(markdown),
+    instructionSections: instructionSectionsFromMarkdown(markdown),
+    notes: {
+      testing: notes["What might need testing"] || "",
+      substitutions: notes["Possible substitutions"] || "",
+      prepAhead: notes["Prep-ahead ideas"] || "",
+      familyPreferenceConcerns: notes["Family preference concerns"] || "",
+      raw: notes,
+    },
+    prepGuidance: {
+      prepAheadIdeas: notes["Prep-ahead ideas"] ? [notes["Prep-ahead ideas"]] : [],
+      doNotPrepAhead: [],
+      perishabilityNotes: planningSummary["Perishability notes"] || "",
+      bestDayToCook: planningSummary["Best day to cook"] || "",
+    },
+    archivedMarkdownPath: `firebase/recipes/${recipeId}.md`,
+    sourceMarkdown: normalizeMarkdownForRecipe(markdown, title, status, normalizedCategory),
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function recipeCategoryOptions(archiveDocs) {
+  const categories = archiveDocs
+    .map((doc) => doc.recipe?.category || pathCategory(doc.path))
+    .map(normalizeRecipeCategory)
+    .filter(Boolean);
+  return uniqueValues([...categories, "chicken", "beef", "pork", "seafood", "turkey", "sides", "desserts", "lunches"])
+    .sort((first, second) => first.localeCompare(second));
+}
+
+function uniqueRecipeId(baseId, archiveDocs) {
+  const usedIds = new Set(archiveDocs.map((doc) => doc.id));
+  const usedPaths = new Set(archiveDocs.map((doc) => doc.path));
+  if (!usedIds.has(baseId) && !usedPaths.has(`firebase/recipes/${baseId}.md`)) {
+    return baseId;
+  }
+  let index = 2;
+  while (usedIds.has(`${baseId}-${index}`) || usedPaths.has(`firebase/recipes/${baseId}-${index}.md`)) {
+    index += 1;
+  }
+  return `${baseId}-${index}`;
+}
+
+function normalizeMarkdownForRecipe(markdown, title, status, category) {
+  const text = String(markdown || "").replace(/\r\n/g, "\n").trim();
+  const withTitle = /^#\s+.+$/m.test(text) ? text : `# ${title}\n\n${text}`;
+  const lines = withTitle.split("\n");
+  const firstHeadingIndex = lines.findIndex((line) => /^#\s+/.test(line));
+  const insertIndex = firstHeadingIndex === -1 ? 0 : firstHeadingIndex + 1;
+  const hasStatus = /^Status:\s*/im.test(withTitle);
+  const hasCategory = /^Category:\s*/im.test(withTitle);
+  const inserts = [
+    hasStatus ? "" : `Status: ${status === "stage-2" ? "Stage 2 - Promoted family recipe" : "Stage 1 - Draft / testing"}`,
+    hasCategory ? "" : `Category: ${category}`,
+  ].filter(Boolean);
+  if (!inserts.length) {
+    return withTitle;
+  }
+  return [
+    ...lines.slice(0, insertIndex),
+    ...inserts,
+    ...lines.slice(insertIndex),
+  ].join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
+function structuredIngredientsFromMarkdown(markdown) {
+  return extractIngredientTableRows(markdown).map((row, index) => {
+    const quantityText = row.Quantity || "";
+    const parsedQuantity = parseQuantityParts(quantityText);
+    const item = row.Ingredient || row.Item || "";
+    return {
+      id: `ingredient-${index + 1}`,
+      quantityText,
+      quantityValue: numericValue(parsedQuantity.quantity),
+      unit: parsedQuantity.unit,
+      item,
+      preferredType: row["Preferred version/type"] || row.Preferred || "",
+      acceptableAlternatives: row["Acceptable alternatives"] || row.Alternatives || "",
+      notes: row.Notes || row["Used in"] || "",
+      groceryCategory: grocerySectionForItem(item),
+      usedIn: row["Used in"] || row.Notes || "",
+      optional: Object.values(row).some((value) => /\boptional\b/i.test(String(value || ""))),
+      perishable: isLikelyPerishableItem(item),
+      sourceRow: row,
+    };
+  });
+}
+
+function instructionSectionsFromMarkdown(markdown) {
+  return ["Basic Instructions", "Detailed Instructions"].flatMap((heading) => {
+    const steps = numberedItems(markdown, heading);
+    return steps.length ? [{ title: heading, steps }] : [];
+  });
+}
+
+function titleFromMarkdown(markdown) {
+  return String(markdown || "").match(/^#\s+(.+)$/m)?.[1]?.trim() || "";
+}
+
+function topMetadataValue(markdown, label) {
+  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return String(markdown || "").match(new RegExp(`^${escapedLabel}:\\s*(.+)$`, "im"))?.[1]?.trim() || "";
+}
+
+function labeledBulletValues(markdown, heading) {
+  const values = {};
+  bulletItems(markdown, heading).forEach((item) => {
+    const separatorIndex = item.indexOf(":");
+    if (separatorIndex === -1) {
+      return;
+    }
+    values[item.slice(0, separatorIndex).trim()] = item.slice(separatorIndex + 1).trim();
+  });
+  return values;
+}
+
+function bulletItems(markdown, heading) {
+  return sectionMarkdown(markdown, heading)
+    .split("\n")
+    .map((line) => line.match(/^\s*[-*+]\s+(.+)$/))
+    .filter(Boolean)
+    .map((match) => stripInlineMarkdown(match[1].trim()))
+    .filter(Boolean);
+}
+
+function numberedItems(markdown, heading) {
+  return sectionMarkdown(markdown, heading)
+    .split("\n")
+    .map((line) => line.match(/^\s*(\d+)\.\s+(.+)$/))
+    .filter(Boolean)
+    .map((match) => ({
+      order: Number(match[1]),
+      text: stripInlineMarkdown(match[2].trim()),
+    }));
+}
+
+function sectionMarkdown(markdown, heading) {
+  const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
+  const pattern = new RegExp(`^##\\s+${heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "i");
+  const start = lines.findIndex((line) => pattern.test(line.trim()));
+  if (start === -1) {
+    return "";
+  }
+  const collected = [];
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (/^##\s+/.test(lines[index])) {
+      break;
+    }
+    collected.push(lines[index]);
+  }
+  return collected.join("\n").trim();
+}
+
+function stripInlineMarkdown(value) {
+  return String(value || "")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .trim();
+}
+
+function pathCategory(path) {
+  const parts = String(path || "").split("/");
+  const archiveIndex = parts.indexOf("recipe-archive");
+  return archiveIndex === -1 ? "" : parts[archiveIndex + 1] || "";
+}
+
+function normalizeRecipeCategory(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function slugFromTitle(value) {
+  return normalizeRecipeCategory(value) || `recipe-${Date.now()}`;
+}
+
+function minutesValue(value) {
+  const text = String(value || "").toLowerCase();
+  const hourMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:hour|hr)/);
+  const minuteMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:minute|min)/);
+  const hours = hourMatch ? Number(hourMatch[1]) * 60 : 0;
+  const minutes = minuteMatch ? Number(minuteMatch[1]) : 0;
+  const total = hours + minutes;
+  if (total > 0) {
+    return total;
+  }
+  return numericValue(text);
+}
+
+function numericValue(value) {
+  const text = String(value || "").trim();
+  const mixed = text.match(/^(\d+)\s+(\d+)\/(\d+)$/);
+  if (mixed) {
+    return Number(mixed[1]) + Number(mixed[2]) / Number(mixed[3]);
+  }
+  const fraction = text.match(/^(\d+)\/(\d+)$/);
+  if (fraction) {
+    return Number(fraction[1]) / Number(fraction[2]);
+  }
+  const number = Number(text.match(/\d+(?:\.\d+)?/)?.[0]);
+  return Number.isFinite(number) ? number : null;
+}
+
+function isLikelyPerishableItem(item) {
+  const words = new Set(groceryItemWords(item));
+  return [
+    "apple", "avocado", "basil", "beef", "broccoli", "carrot", "cheese", "chicken", "cilantro", "cream",
+    "cucumber", "dill", "egg", "fish", "ginger", "ham", "lettuce", "lime", "meat", "milk", "mushroom",
+    "onion", "parsley", "pepper", "pork", "potato", "salmon", "shrimp", "steak", "tomato", "turkey",
+    "yogurt", "zucchini",
+  ].some((word) => words.has(word));
+}
+
 function filterDocs(docs, search) {
   return docs.filter((doc) => matchesSearch(`${doc.title} ${doc.summary} ${doc.path}`, search));
 }
@@ -1633,10 +2310,10 @@ function archiveRecipeToMenuRow(doc, day) {
     Meal: doc.title,
     "Recipe file": fileNameFromPath(doc.path),
     "Recipe path": doc.path,
-    Stage: recipeStageFromMarkdown(doc.markdown) || "Stage 2",
-    Protein: planningSummaryValue(doc.markdown, "Protein"),
-    "Cuisine/flavor": planningSummaryValue(doc.markdown, "Cuisine or flavor direction"),
-    "Perishability reason": planningSummaryValue(doc.markdown, "Perishability notes"),
+    Stage: stageForDoc(doc) || "Stage 2",
+    Protein: doc.recipe?.protein || planningSummaryValue(doc.markdown, "Protein"),
+    "Cuisine/flavor": doc.recipe?.cuisine || planningSummaryValue(doc.markdown, "Cuisine or flavor direction"),
+    "Perishability reason": doc.recipe?.perishabilityNotes || planningSummaryValue(doc.markdown, "Perishability notes"),
     Notes: "Added from recipe archive",
     "Plan source": "archive",
   };
@@ -1858,9 +2535,42 @@ function normalizeHeader(header) {
 }
 
 function extractIngredientRows(markdown) {
-  return extractIngredientTableRows(markdown).map((row) => ({
-    ingredient: row.Ingredient || row.Item || "",
-  })).filter((row) => row.ingredient);
+  const seenIngredients = new Set();
+  return extractIngredientTableRows(markdown)
+    .map((row) => ({
+      ingredient: row.Ingredient || row.Item || "",
+    }))
+    .filter((row) => {
+      const key = row.ingredient.trim().toLowerCase();
+      if (!key || seenIngredients.has(key)) {
+        return false;
+      }
+      seenIngredients.add(key);
+      return true;
+    });
+}
+
+function ingredientRowsForDoc(doc) {
+  if (doc?.recipe?.ingredients?.length) {
+    return doc.recipe.ingredients.map((ingredient) => ({
+      Quantity: ingredient.quantityText || "",
+      Ingredient: ingredient.item || "",
+      "Preferred version/type": ingredient.preferredType || "",
+      "Acceptable alternatives": ingredient.acceptableAlternatives || "",
+      Notes: ingredient.notes || ingredient.usedIn || "",
+    }));
+  }
+  return extractIngredientTableRows(doc?.markdown || "");
+}
+
+function stageForDoc(doc) {
+  if (doc?.recipe?.status === "stage-2") {
+    return "Stage 2";
+  }
+  if (doc?.recipe?.status === "stage-1") {
+    return "Stage 1";
+  }
+  return recipeStageFromMarkdown(doc?.markdown || "");
 }
 
 function extractIngredientTableRows(markdown) {

@@ -1,7 +1,7 @@
 # Mediterranean Turkey Meatballs with Lemon Rice, Tzatziki, and Roasted Vegetables
 
 Status: Stage 1 Draft  
-Weekly folder: `recipe-archive/drafts/`  
+Archive folder: `recipe-archive/turkey/`  
 Category: Turkey  
 Source or inspiration: Week 29 family menu idea  
 Date added: 2026-07-04  
@@ -82,7 +82,7 @@ Review file:
 
 ## Archive Plan
 
-- Move to archive after cooking and review: Yes
-- Target archive folder: `recipe-archive/turkey/`
+- Filed in archive category as Stage 1 draft: Yes
+- Current archive folder: `recipe-archive/turkey/`
 - Family rating to add after cooking:
 - Version notes to preserve:

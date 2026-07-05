@@ -1,7 +1,7 @@
 # Peach Greek Yogurt Dessert
 
 Status: Stage 1 Draft  
-Weekly folder: `recipe-archive/drafts/`  
+Archive folder: `recipe-archive/desserts/`  
 Category: Desserts  
 Source or inspiration: Previous family draft recipe  
 Date added: 2026-07-04  
@@ -53,7 +53,7 @@ Review file:
 
 ## Archive Plan
 
-- Move to archive after cooking and review: Yes
-- Target archive folder: `recipe-archive/desserts/`
+- Filed in archive category as Stage 1 draft: Yes
+- Current archive folder: `recipe-archive/desserts/`
 - Family rating to add after cooking:
 - Version notes to preserve:

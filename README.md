@@ -4,11 +4,11 @@ This is a Markdown-based family cookbook and meal planning system. It is designe
 
 ## Core Workflow
 
-1. Create new generated recipes as Stage 1 drafts in `recipe-archive/drafts/`.
-2. Use the Recipes tab in the app to create or edit a planning week from archived draft recipes.
+1. Create new generated recipes as Stage 1 drafts in the best matching `recipe-archive/<category>/` folder.
+2. Use the Recipes tab in the app to create or edit a planning week from archived Stage 1 recipes.
 3. Use the generated working week to build the weekly menu, grocery list, and prep guide.
 4. Cook the meal and complete a recipe review.
-5. Move approved recipes into the archive, adding family ratings, version notes, and any changes.
+5. Add family ratings, version notes, and any changes to reviewed recipes in their category folder.
 6. Promote the recipe to Stage 2 only if the family would make it again.
 
 ## Family Preferences
@@ -23,9 +23,8 @@ This is a Markdown-based family cookbook and meal planning system. It is designe
 
 - `templates/` - reusable Markdown templates for recipes, menus, grocery lists, prep guides, and reviews.
 - `weekly-plans/2026/week-[number]/` - committed weekly packets and any explicit week-local files.
-- `recipe-archive/drafts/` - default home for generated Stage 1 draft recipes before review or promotion.
 - `recipe-archive/promoted/` - Stage 2 recipes before category filing or for cross-category keeper lists.
-- `recipe-archive/breakfast/`, `lunches/`, `beef/`, `chicken/`, `pork/`, `seafood/`, `sides/`, `sauces/`, `desserts/` - organized promoted recipes.
+- `recipe-archive/breakfast/`, `lunches/`, `beef/`, `chicken/`, `pork/`, `seafood/`, `sides/`, `sauces/`, `desserts/`, `turkey/` - organized recipe categories. These can contain Stage 1 drafts and Stage 2 keepers.
 - `planning/` - standing notes, rules, backlog ideas, substitutions, pantry notes, and lessons learned.
 - `scripts/` - optional JavaScript helpers from the original project.
 
@@ -33,7 +32,7 @@ This is a Markdown-based family cookbook and meal planning system. It is designe
 
 ### Stage 1: Draft Recipe
 
-Stage 1 recipes are planning drafts. New generated drafts live in `recipe-archive/drafts/` so they can be reused across working weekly menus. They need enough detail to shop and cook once, but they do not need binder-level polish.
+Stage 1 recipes are planning drafts. New generated drafts live directly in the best matching category folder under `recipe-archive/` so they can be reused across working weekly menus. They need enough detail to shop and cook once, but they do not need binder-level polish.
 
 Required sections:
 
@@ -43,6 +42,8 @@ Required sections:
 - Ingredients with quantities
 - Basic instructions
 - Notes
+
+Instruction steps should repeat the exact ingredient amounts used in that action. For example, write "Whisk together 1/4 cup low-sodium soy sauce, 2 tbsp brown sugar, 1 tbsp rice vinegar, 1 tsp grated ginger, and 2 minced garlic cloves" instead of "mix the sauce ingredients."
 
 ### Stage 2: Promoted Binder Recipe
 
@@ -61,6 +62,8 @@ Required sections:
 - Reheating
 - Version history
 - Family notes
+
+Stage 2 instructions should be beginner-friendly and step-specific. Any mixing, marinating, coating, filling, seasoning, sauce, dressing, or bowl-assembly step should name exactly how much of each ingredient is being used in that step.
 
 ## Grocery Rules
 

@@ -28,7 +28,7 @@ Planning status: Draft
 
 ## Recipes This Week
 
-New recipes should start as Stage 1 drafts in this weekly folder. After cooking and review, move approved recipes to the archive with family ratings, version notes, and any changes.
+New recipes should start as Stage 1 drafts in the best matching category folder under recipe-archive. After cooking and review, add family ratings, version notes, and any changes in that recipe file.
 
 | Recipe | File | Stage | Goal this week | Review needed |
 |---|---|---|---|---|

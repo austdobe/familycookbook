@@ -30,6 +30,12 @@ Assume nothing is on hand. Include quantities for everything used.
 
 ## Basic Instructions
 
+Instruction detail rule:
+
+- Every step that mixes, combines, marinates, seasons, stuffs, coats, makes a sauce, makes a dressing, makes a filling, or assembles a bowl must repeat the exact ingredient amounts used in that step.
+- Do not write "mix sauce ingredients," "combine marinade," or "season to taste" without listing what and how much.
+- Example: "Whisk together 1/4 cup low-sodium soy sauce, 2 tbsp brown sugar, 1 tbsp rice vinegar, 1 tsp grated ginger, and 2 minced garlic cloves."
+
 1. 
 2. 
 3. 

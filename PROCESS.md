@@ -25,13 +25,14 @@ Do not overbuild recipes at this stage. The backlog is just a parking place for 
 
 ## 2. Create Stage 1 Draft Recipes
 
-When an idea is ready to use in a weekly plan, create the Stage 1 recipe in `recipe-archive/drafts/`. The weekly plan should then select that archive draft through the app planning flow.
+When an idea is ready to use in a weekly plan, create the Stage 1 recipe directly in the best matching category folder under `recipe-archive/`. The weekly plan should then select that archive recipe through the app planning flow.
 
 Example:
 
 ```text
-recipe-archive/drafts/
+recipe-archive/chicken/
   jamaican-jerk-chicken-coconut-rice-pineapple-mango-salsa.md
+recipe-archive/beef/
   mongolian-beef-jasmine-rice-broccoli.md
 ```
 
@@ -48,11 +49,13 @@ Every Stage 1 recipe should include:
 - Basic instructions
 - Notes
 
-Important rule: every new generated recipe starts as a Stage 1 draft in `recipe-archive/drafts/` unless a week-local file is explicitly requested. Do not write a Stage 2 binder recipe before the family has cooked it and decided it is worth keeping.
+Instruction detail rule: every step that mixes, combines, marinates, seasons, stuffs, coats, makes a sauce, makes a dressing, makes a filling, or assembles a bowl must repeat the exact ingredient amounts used in that step. Do not write shorthand such as "mix the sauce ingredients" or "combine the marinade." Write the amounts again inside the step so the cook does not have to look back and forth between sections.
+
+Important rule: every new generated recipe starts as a Stage 1 draft in the best matching `recipe-archive/<category>/` folder unless a week-local file is explicitly requested. Do not write a Stage 2 binder recipe before the family has cooked it and decided it is worth keeping.
 
 ## 3. Build the Weekly Menu
 
-Committed weekly packets live in week-specific folders under `weekly-plans/2026/`. Working plans can be created in the app from archive drafts before a Markdown packet exists.
+Committed weekly packets live in week-specific folders under `weekly-plans/2026/`. Working plans can be created in the app from category-filed Stage 1 archive recipes before a Markdown packet exists.
 
 Use `templates/weekly-menu.md` as the starting point for a weekly packet.
 
@@ -115,7 +118,7 @@ Good prep helps the week without hurting food quality. Do not prep delicate item
 
 ## 6. Cook the Meals
 
-Cook from the Stage 1 draft in `recipe-archive/drafts/`, a week-local draft if one was explicitly created, or the Stage 2 recipe listed in the weekly packet.
+Cook from the Stage 1 recipe in its `recipe-archive/<category>/` folder, a week-local draft if one was explicitly created, or the Stage 2 recipe listed in the weekly packet.
 
 While cooking, note anything that matters:
 
@@ -169,7 +172,9 @@ Every Stage 2 recipe should include:
 - Version history
 - Family notes
 
-After review, move approved recipes out of `recipe-archive/drafts/` and into the most useful archive category. Add family ratings, version notes, and any changes learned during cooking before or during promotion.
+Instruction detail rule: Stage 2 recipes must be especially explicit about ingredient amounts inside each step. If a step makes meatballs, sauce, marinade, dressing, spice blend, filling, rice bowl, casserole layer, or topping, list the exact quantities in that step again, even when those same quantities already appear in the ingredient list.
+
+After review, keep the recipe in its most useful archive category. Add family ratings, version notes, and any changes learned during cooking before or during promotion.
 
 - `recipe-archive/promoted/`
 - `recipe-archive/breakfast/`
@@ -181,6 +186,7 @@ After review, move approved recipes out of `recipe-archive/drafts/` and into the
 - `recipe-archive/sides/`
 - `recipe-archive/sauces/`
 - `recipe-archive/desserts/`
+- `recipe-archive/turkey/`
 
 ## 9. Update Planning Notes
 
@@ -214,7 +220,7 @@ A complete weekly packet usually contains or links to:
 6. Recipe reviews after cooking
 7. Lessons learned
 
-The weekly folder is the committed packet for the week. New generated Stage 1 drafts live in `recipe-archive/drafts/`, and the app can assemble working weeks from those drafts before a final packet is written.
+The weekly folder is the committed packet for the week. New generated Stage 1 drafts live in the best matching category folder under `recipe-archive/`, and the app can assemble working weeks from those recipes before a final packet is written.
 
 ## Recommended Next File
 

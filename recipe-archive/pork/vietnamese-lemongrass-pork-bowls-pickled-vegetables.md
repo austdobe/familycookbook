@@ -1,7 +1,7 @@
 # Vietnamese Lemongrass Pork Bowls with Pickled Vegetables and Herbs
 
 Status: Stage 1 Draft  
-Weekly folder: `recipe-archive/drafts/`  
+Archive folder: `recipe-archive/pork/`  
 Category: Pork  
 Source or inspiration: Week 29 family menu idea  
 Date added: 2026-07-04  
@@ -76,7 +76,7 @@ Review file:
 
 ## Archive Plan
 
-- Move to archive after cooking and review: Yes
-- Target archive folder: `recipe-archive/pork/`
+- Filed in archive category as Stage 1 draft: Yes
+- Current archive folder: `recipe-archive/pork/`
 - Family rating to add after cooking:
 - Version notes to preserve:

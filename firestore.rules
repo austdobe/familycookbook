@@ -29,5 +29,13 @@ service cloud.firestore {
     match /households/{householdId}/recipeFeedback/{recipeId} {
       allow read, write: if isFamilyHousehold(householdId);
     }
+
+    match /households/{householdId}/recipes/{recipeId} {
+      allow read, write: if isFamilyHousehold(householdId);
+    }
+
+    match /households/{householdId}/recipes/{recipeId}/reviews/{reviewId} {
+      allow read, write: if isFamilyHousehold(householdId);
+    }
   }
 }

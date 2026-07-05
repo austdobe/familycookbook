@@ -4,7 +4,16 @@ import { getFirebaseClient } from "./firebase.js";
 const householdId = import.meta.env.VITE_FIREBASE_HOUSEHOLD_ID || "family";
 
 function emptyFeedback() {
-  return { ingredientChanges: [], rating: "", notes: "", updatedAt: "" };
+  return {
+    cookedAt: "",
+    cookedCount: 0,
+    ingredientChanges: [],
+    notes: "",
+    promotedAt: "",
+    promotionNotes: "",
+    rating: "",
+    updatedAt: "",
+  };
 }
 
 function storageKey(recipeId) {
@@ -76,9 +85,13 @@ export function subscribeRecipeFeedback(recipeId, callback) {
 
 export async function saveRecipeFeedback(recipeId, recipePath, feedback) {
   const nextFeedback = {
+    cookedAt: feedback.cookedAt || "",
+    cookedCount: Number(feedback.cookedCount || 0),
     ingredientChanges: Array.isArray(feedback.ingredientChanges) ? feedback.ingredientChanges : [],
-    rating: feedback.rating || "",
     notes: feedback.notes || "",
+    promotedAt: feedback.promotedAt || "",
+    promotionNotes: feedback.promotionNotes || "",
+    rating: feedback.rating || "",
     recipePath,
     updatedAt: new Date().toISOString(),
   };
