@@ -1984,7 +1984,7 @@ function buildPrepSectionsFromMenuRows(menuRows, archiveDocs = []) {
 
   const tasks = rows.flatMap((row) => prepTasksForMenuRow(row, archiveDocs));
   const sections = [
-    "Start-of-Week Prep",
+    "Sunday Prep",
     "Midweek Refresh",
     "Cook-Day Reminders",
     "Do Not Prep Ahead",
@@ -2001,7 +2001,7 @@ function buildPrepSectionsFromMenuRows(menuRows, archiveDocs = []) {
 
 function prepTasksForMenuRow(row, archiveDocs) {
   const doc = findRecipeDocForMenuRow(row, archiveDocs);
-  const recipe = doc?.recipe || null;
+  const recipe = recipeForPrep(doc);
   const meal = row.Meal || doc?.title || "Planned meal";
   const useByDate = row.Day || recipe?.bestDayToCook || "Planned cook day";
   const dayIndex = weekdayIndex(useByDate);
@@ -2025,12 +2025,13 @@ function prepTasksForMenuRow(row, archiveDocs) {
   const prepAheadIdeas = recipe.prepGuidance?.prepAheadIdeas?.length
     ? recipe.prepGuidance.prepAheadIdeas
     : [recipe.notes?.prepAhead].filter(Boolean);
-  const earlySection = dayIndex <= 2 ? "Start-of-Week Prep" : "Midweek Refresh";
-  const prepSection = dayIndex <= 3 ? "Start-of-Week Prep" : "Midweek Refresh";
+  const earlySection = dayIndex <= 2 ? "Sunday Prep" : "Midweek Refresh";
+  const prepSection = dayIndex <= 3 ? "Sunday Prep" : "Midweek Refresh";
+  const componentGroups = prepComponentGroups(recipe);
 
   if (proteinIngredients.length) {
     tasks.push(prepTask({
-      ingredients: ingredientNames(proteinIngredients),
+      ingredients: ingredientAmounts(proteinIngredients),
       instructions: dayIndex <= 2
         ? "Confirm protein is purchased, portioned, and ready for the planned cook day. If frozen, thaw in the refrigerator."
         : "Move frozen protein to the refrigerator early enough to thaw safely before cooking.",
@@ -2041,6 +2042,18 @@ function prepTasksForMenuRow(row, archiveDocs) {
       useByDate,
     }));
   }
+
+  componentGroups.forEach((group) => {
+    tasks.push(prepTask({
+      ingredients: ingredientAmounts(group.ingredients),
+      instructions: group.instructions,
+      meal,
+      section: group.section || prepSection,
+      storageMethod: group.storageMethod,
+      title: `${group.title} for ${meal}`,
+      useByDate,
+    }));
+  });
 
   prepAheadIdeas.forEach((idea) => {
     tasks.push(prepTask({
@@ -2056,7 +2069,7 @@ function prepTasksForMenuRow(row, archiveDocs) {
 
   if (sturdyProduce.length) {
     tasks.push(prepTask({
-      ingredients: ingredientNames(sturdyProduce),
+      ingredients: ingredientAmounts(sturdyProduce),
       instructions: "Wash, trim, chop, or portion sturdy vegetables that hold well after cutting.",
       meal,
       section: prepSection,
@@ -2067,18 +2080,18 @@ function prepTasksForMenuRow(row, archiveDocs) {
   }
 
   tasks.push(prepTask({
-    ingredients: ingredientNames((recipe.ingredients || []).slice(0, 10)) || "Recipe ingredients",
-    instructions: "Read the recipe, confirm ingredients are purchased, and group shelf-stable components together for faster cooking.",
+    ingredients: ingredientAmounts(ingredientsByKind(recipe, "pantry").slice(0, 10)) || ingredientAmounts((recipe.ingredients || []).slice(0, 10)) || "Recipe ingredients",
+    instructions: "Pull shelf-stable ingredients into a labeled bin or tray so the cook-day setup is faster.",
     meal,
     section: "Cook-Day Reminders",
     storageMethod: "Shelf-stable items grouped together; refrigerated items kept cold until cooking.",
-    title: `Stage ingredients for ${meal}`,
+    title: `Stage pantry items for ${meal}`,
     useByDate,
   }));
 
   if (delicateItems.length || recipe.perishabilityNotes) {
     tasks.push(prepTask({
-      ingredients: ingredientNames(delicateItems) || "Delicate or texture-sensitive ingredients",
+      ingredients: ingredientAmounts(delicateItems) || "Delicate or texture-sensitive ingredients",
       instructions: recipe.perishabilityNotes || "Do not cut, salt, or mix delicate fresh components too early; prep close to serving for best texture.",
       meal,
       section: "Do Not Prep Ahead",
@@ -2093,6 +2106,40 @@ function prepTasksForMenuRow(row, archiveDocs) {
 
 function prepTask({ ingredients, instructions, meal, section, storageMethod, title, useByDate }) {
   return { ingredients, instructions, meal, section, storageMethod, title, useByDate };
+}
+
+function recipeForPrep(doc) {
+  if (!doc) {
+    return null;
+  }
+  if (doc.recipe) {
+    return doc.recipe;
+  }
+
+  const markdown = doc.markdown || "";
+  const planningSummary = labeledBulletValues(markdown, "Planning Summary");
+  const notes = labeledBulletValues(markdown, "Notes");
+  const ingredients = structuredIngredientsFromMarkdown(markdown);
+  if (!ingredients.length) {
+    return null;
+  }
+
+  return {
+    bestDayToCook: planningSummary["Best day to cook"] || "",
+    cuisine: planningSummary["Cuisine or flavor direction"] || "",
+    ingredients,
+    instructionSections: instructionSectionsFromMarkdown(markdown),
+    notes: {
+      prepAhead: notes["Prep-ahead ideas"] || "",
+      testing: notes["What might need testing"] || "",
+      familyPreferenceConcerns: notes["Family preference concerns"] || "",
+    },
+    perishabilityNotes: planningSummary["Perishability notes"] || "",
+    prepGuidance: {
+      prepAheadIdeas: notes["Prep-ahead ideas"] ? [notes["Prep-ahead ideas"]] : [],
+    },
+    protein: planningSummary.Protein || "",
+  };
 }
 
 function renderPrepTaskMarkdown(task) {
@@ -2120,7 +2167,58 @@ function ingredientsByKind(recipe, kind) {
       return (ingredient.groceryCategory === "Produce" || grocerySectionForItem(item) === "Produce")
         && !ingredientsByKind({ ingredients: [ingredient] }, "delicate").length;
     }
+    if (kind === "pantry") {
+      return ["Pantry and Dry Goods", "Sauces, Condiments, and Spices", "Bakery"].includes(ingredient.groceryCategory || grocerySectionForItem(item));
+    }
     return false;
+  });
+}
+
+function prepComponentGroups(recipe) {
+  const groups = [
+    {
+      key: "marinade",
+      patterns: ["marinade", "rub"],
+      title: "Make marinade",
+      instructions: "Mix these marinade ingredients in a labeled container. Add the protein only if the recipe says it can marinate ahead; otherwise keep the marinade separate until cook day.",
+      storageMethod: "Covered labeled container in the refrigerator.",
+    },
+    {
+      key: "sauce",
+      patterns: ["sauce", "gravy", "dressing", "tzatziki", "yogurt", "glaze"],
+      title: "Mix sauce or dressing",
+      instructions: "Mix these sauce or dressing ingredients together, label the container, and keep it cold until the meal.",
+      storageMethod: "Covered labeled container in the refrigerator unless all ingredients are shelf-stable.",
+    },
+    {
+      key: "salsa",
+      patterns: ["salsa", "slaw", "pickle", "pickled", "topping"],
+      title: "Prep fresh topping",
+      instructions: "Chop and combine only the sturdy topping ingredients. Hold salt, citrus, herbs, and juicy produce until closer to serving if texture could suffer.",
+      storageMethod: "Covered container in the refrigerator; keep wet/salty finishing ingredients separate if needed.",
+    },
+    {
+      key: "starch",
+      patterns: ["rice", "grain", "pasta", "potato", "potatoes", "bread"],
+      title: "Measure starch or bread components",
+      instructions: "Measure or group these starch/bread ingredients so the cook-day step is ready. Do not cook ahead unless the recipe specifically says reheating works well.",
+      storageMethod: "Shelf-stable items in a labeled bin; refrigerated items kept cold.",
+      section: "Cook-Day Reminders",
+    },
+  ];
+
+  return groups
+    .map((group) => ({
+      ...group,
+      ingredients: ingredientsByUse(recipe, group.patterns),
+    }))
+    .filter((group) => group.ingredients.length);
+}
+
+function ingredientsByUse(recipe, patterns) {
+  return (recipe.ingredients || []).filter((ingredient) => {
+    const useText = `${ingredient.notes || ""} ${ingredient.usedIn || ""} ${ingredient.sourceRow?.Notes || ""}`.toLowerCase();
+    return patterns.some((pattern) => useText.includes(pattern));
   });
 }
 
@@ -2128,13 +2226,39 @@ function relevantIngredientList(recipe, text) {
   const words = new Set(groceryItemWords(text));
   const matches = (recipe.ingredients || [])
     .filter((ingredient) => groceryItemWords(ingredient.item).some((word) => words.has(word)))
-    .map((ingredient) => ingredient.item)
     .filter(Boolean);
-  return matches.length ? matches.join(", ") : ingredientNames((recipe.ingredients || []).slice(0, 8));
+  const noteMatches = prepComponentGroups(recipe)
+    .filter((group) => groceryItemWords(`${group.key} ${group.title}`).some((word) => words.has(word)))
+    .flatMap((group) => group.ingredients);
+  const combined = uniqueIngredients([...matches, ...noteMatches]);
+  return combined.length ? ingredientAmounts(combined) : ingredientAmounts((recipe.ingredients || []).slice(0, 8));
 }
 
 function ingredientNames(ingredients) {
   return ingredients.map((ingredient) => ingredient.item || ingredient.Ingredient || ingredient.Item || "").filter(Boolean).join(", ");
+}
+
+function ingredientAmounts(ingredients) {
+  return ingredients
+    .map((ingredient) => {
+      const quantity = ingredient.quantityText || ingredient.Quantity || "";
+      const item = ingredient.item || ingredient.Ingredient || ingredient.Item || "";
+      return [quantity, item].filter(Boolean).join(" ");
+    })
+    .filter(Boolean)
+    .join(", ");
+}
+
+function uniqueIngredients(ingredients) {
+  const seen = new Set();
+  return ingredients.filter((ingredient) => {
+    const key = `${ingredient.quantityText || ingredient.Quantity || ""}|${ingredient.item || ingredient.Ingredient || ingredient.Item || ""}`.toLowerCase();
+    if (!key.trim() || seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
 }
 
 function weekdayIndex(value) {
@@ -2604,15 +2728,25 @@ function clearMenuRowForDay(rows, day) {
 
 function findRecipeDocForMenuRow(row, docs) {
   const recipePath = row["Recipe path"] || "";
+  const recipeFile = row["Recipe file"] || fileNameFromPath(recipePath);
+  const candidates = [];
   if (recipePath) {
-    const byPath = docs.find((candidate) => candidate.path === recipePath);
-    if (byPath) {
-      return byPath;
-    }
+    candidates.push(...docs.filter((candidate) => candidate.path === recipePath));
   }
 
-  const recipeFile = row["Recipe file"] || "";
-  return docs.find((candidate) => recipeFile && candidate.path.endsWith(`/${recipeFile}`)) || null;
+  if (recipeFile) {
+    candidates.push(...docs.filter((candidate) => candidate.path.endsWith(`/${recipeFile}`)));
+  }
+
+  return bestRecipeDoc(candidates);
+}
+
+function bestRecipeDoc(candidates) {
+  const uniqueCandidates = uniqueValues(candidates.filter(Boolean));
+  return uniqueCandidates.find((candidate) => candidate.recipe)
+    || uniqueCandidates.find((candidate) => candidate.type === "archived-recipe")
+    || uniqueCandidates[0]
+    || null;
 }
 
 function fileNameFromPath(value) {
