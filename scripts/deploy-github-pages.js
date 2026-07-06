@@ -7,6 +7,7 @@ const distDir = path.join(rootDir, "dist");
 const publishDir = path.join(rootDir, "tmp", "gh-pages-publish");
 const branch = process.env.PAGES_BRANCH || "gh-pages";
 const remote = process.env.PAGES_REMOTE || "origin";
+const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -52,7 +53,7 @@ function copyDist() {
 
 function main() {
   console.log("Building GitHub Pages bundle...");
-  run("npm.cmd", ["run", "build:pages"], { stdio: "inherit" });
+  run(npmCommand, ["run", "build:pages"], { stdio: "inherit" });
 
   if (!fs.existsSync(distDir)) {
     throw new Error("dist/ was not created.");
