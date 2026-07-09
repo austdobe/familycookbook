@@ -72,7 +72,7 @@ function App() {
     if (!data) {
       return [];
     }
-    return mergeArchiveDocs(data.archivedRecipes, firebaseArchiveDocs);
+    return firebaseArchiveDocs.length ? firebaseArchiveDocs : data.archivedRecipes;
   }, [data, firebaseArchiveDocs]);
 
   const weeks = useMemo(() => {
@@ -81,9 +81,8 @@ function App() {
     }
     return mergeCookbookWeeks(data.weeks, workingWeeks, archiveDocs);
   }, [archiveDocs, data, workingWeeks]);
-  const localFallbackCount = Math.max(archiveDocs.length - firebaseArchiveDocs.length, 0);
   const recipeSourceLabel = firebaseArchiveDocs.length
-    ? `Recipes: Firebase (${firebaseArchiveDocs.length})${localFallbackCount ? ` + local fallback (${localFallbackCount})` : ""}`
+    ? `Recipes: Firebase (${firebaseArchiveDocs.length})`
     : `Recipes: Local fallback (${archiveDocs.length})`;
 
   const selectedWeek = useMemo(() => {
