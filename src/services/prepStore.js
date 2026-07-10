@@ -1,5 +1,5 @@
-import { deleteDoc, doc, onSnapshot, setDoc } from "firebase/firestore";
-import { getFirebaseClient } from "./firebase.js";
+import { deleteDoc, doc, getDoc, onSnapshot, setDoc } from "firebase/firestore";
+import { firebaseIsConfigured, getFirebaseClient } from "./firebase.js";
 
 const householdId = import.meta.env.VITE_FIREBASE_HOUSEHOLD_ID || "family";
 
@@ -92,6 +92,21 @@ export async function savePrepState(weekId, nextState) {
   } catch {
     writeLocalState(weekId, state);
   }
+}
+
+export async function syncPrepStateFromFirebase(weekId) {
+  if (!firebaseIsConfigured()) {
+    throw new Error("Firebase is not configured for this build.");
+  }
+  const stateRef = await getStateRef(weekId);
+  if (!stateRef) {
+    throw new Error("Firebase is unavailable. Check the app connection and Firebase settings.");
+  }
+  const snapshot = await getDoc(stateRef);
+  const nextState = { ...emptyState(), ...(snapshot.exists() ? snapshot.data() : {}) };
+  mirrorLocalState(weekId, nextState);
+  window.dispatchEvent(new CustomEvent("family-cookbook-prep", { detail: { weekId } }));
+  return nextState;
 }
 
 export async function deletePrepState(weekId) {

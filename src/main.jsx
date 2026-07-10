@@ -6,16 +6,17 @@ import {
   deleteGroceryState,
   getGroceryState,
   saveGroceryState,
+  syncGroceryStateFromFirebase,
   subscribeGroceryState,
   toggleGroceryItem,
 } from "./services/groceryStore.js";
 import { markdownToHtml } from "./services/markdown.js";
-import { clearPrepState, deletePrepState, savePrepState, subscribePrepState, togglePrepTask } from "./services/prepStore.js";
+import { clearPrepState, deletePrepState, savePrepState, subscribePrepState, syncPrepStateFromFirebase, togglePrepTask } from "./services/prepStore.js";
 import { saveRecipeFeedback, subscribeRecipeFeedback } from "./services/recipeFeedbackStore.js";
-import { saveRecipe, subscribeRecipes } from "./services/recipeStore.js";
+import { saveRecipe, subscribeRecipes, syncRecipesFromFirebase } from "./services/recipeStore.js";
 import { formatQuantity } from "./services/units.js";
-import { deleteWeekPlanState, saveWeekPlanState, subscribeWeekPlanState } from "./services/weekPlanStore.js";
-import { deleteWorkingWeek, subscribeWorkingWeeks, upsertWeek, upsertWorkingWeek } from "./services/workingWeeksStore.js";
+import { deleteWeekPlanState, saveWeekPlanState, subscribeWeekPlanState, syncWeekPlanStateFromFirebase } from "./services/weekPlanStore.js";
+import { deleteWorkingWeek, subscribeWorkingWeeks, syncWorkingWeeksFromFirebase, upsertWeek, upsertWorkingWeek } from "./services/workingWeeksStore.js";
 import "./styles.css";
 
 const views = [
@@ -42,6 +43,8 @@ function App() {
   const [selectedWeekPlanState, setSelectedWeekPlanState] = useState({ menuRows: [] });
   const [resyncStatus, setResyncStatus] = useState("");
   const [resyncingLists, setResyncingLists] = useState(false);
+  const [syncStatus, setSyncStatus] = useState("");
+  const [syncingFirebase, setSyncingFirebase] = useState(false);
 
   useEffect(() => {
     loadData().then((nextData) => {
@@ -152,6 +155,29 @@ function App() {
     setActiveDocId("");
   };
 
+  const syncFromFirebase = async () => {
+    setSyncingFirebase(true);
+    setSyncStatus("Checking Firebase...");
+    try {
+      const [nextArchiveDocs, nextWorkingWeeks] = await Promise.all([
+        syncRecipesFromFirebase(),
+        syncWorkingWeeksFromFirebase(),
+      ]);
+      setFirebaseArchiveDocs(nextArchiveDocs);
+      setWorkingWeeks(nextWorkingWeeks);
+      await Promise.all(nextWorkingWeeks.flatMap((week) => [
+        syncWeekPlanStateFromFirebase(week.id),
+        syncGroceryStateFromFirebase(week.id),
+        syncPrepStateFromFirebase(week.id),
+      ]));
+      setSyncStatus(`Synced ${nextWorkingWeeks.length} week${nextWorkingWeeks.length === 1 ? "" : "s"} and ${nextArchiveDocs.length} recipe${nextArchiveDocs.length === 1 ? "" : "s"}.`);
+    } catch (error) {
+      setSyncStatus(`Sync failed: ${error.message}`);
+    } finally {
+      setSyncingFirebase(false);
+    }
+  };
+
   if (!data) {
     return <div className="empty full-page">Loading cookbook...</div>;
   }
@@ -219,7 +245,16 @@ function App() {
             <h2>{viewTitle(view, selectedWeek)}</h2>
           </div>
           <div className="topbar-actions">
+            {syncStatus ? <span className="pill">{syncStatus}</span> : null}
             {resyncStatus ? <span className="pill">{resyncStatus}</span> : null}
+            <button
+              className="quiet-button"
+              disabled={syncingFirebase}
+              onClick={syncFromFirebase}
+              type="button"
+            >
+              {syncingFirebase ? "Syncing..." : "Sync"}
+            </button>
             {selectedWeek ? (
               <button
                 className="quiet-button"

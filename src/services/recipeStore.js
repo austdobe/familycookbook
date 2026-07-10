@@ -1,5 +1,5 @@
-import { collection, doc, onSnapshot, setDoc } from "firebase/firestore";
-import { getFirebaseClient } from "./firebase.js";
+import { collection, doc, getDocs, onSnapshot, setDoc } from "firebase/firestore";
+import { firebaseIsConfigured, getFirebaseClient } from "./firebase.js";
 
 const householdId = import.meta.env.VITE_FIREBASE_HOUSEHOLD_ID || "family";
 const eventName = "family-cookbook-recipes";
@@ -112,6 +112,24 @@ export async function saveRecipe(recipe) {
     upsertLocalRecipe(nextRecipe);
   }
   return nextRecipe;
+}
+
+export async function syncRecipesFromFirebase() {
+  if (!firebaseIsConfigured()) {
+    throw new Error("Firebase is not configured for this build.");
+  }
+  const recipesRef = await getRecipesCollectionRef();
+  if (!recipesRef) {
+    throw new Error("Firebase is unavailable. Check the app connection and Firebase settings.");
+  }
+  const snapshot = await getDocs(recipesRef);
+  const recipes = snapshot.docs.map((snapshotDoc) => ({
+    id: snapshotDoc.id,
+    ...snapshotDoc.data(),
+  }));
+  mirrorLocalState({ recipes, updatedAt: new Date().toISOString() });
+  window.dispatchEvent(new CustomEvent(eventName));
+  return toArchiveDocs(recipes);
 }
 
 export async function updateRecipe(recipeId, patch) {

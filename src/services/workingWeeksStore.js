@@ -1,5 +1,5 @@
-import { deleteDoc, doc, onSnapshot, setDoc } from "firebase/firestore";
-import { getFirebaseClient } from "./firebase.js";
+import { deleteDoc, doc, getDoc, onSnapshot, setDoc } from "firebase/firestore";
+import { firebaseIsConfigured, getFirebaseClient } from "./firebase.js";
 
 const householdId = import.meta.env.VITE_FIREBASE_HOUSEHOLD_ID || "family";
 const eventName = "family-cookbook-working-weeks";
@@ -108,6 +108,21 @@ export async function upsertWorkingWeek(week) {
     writeLocalState(nextState);
   }
   return weeks;
+}
+
+export async function syncWorkingWeeksFromFirebase() {
+  if (!firebaseIsConfigured()) {
+    throw new Error("Firebase is not configured for this build.");
+  }
+  const stateRef = await getStateRef();
+  if (!stateRef) {
+    throw new Error("Firebase is unavailable. Check the app connection and Firebase settings.");
+  }
+  const snapshot = await getDoc(stateRef);
+  const nextState = { ...emptyState(), ...(snapshot.exists() ? snapshot.data() : {}) };
+  mirrorLocalState(nextState);
+  window.dispatchEvent(new CustomEvent(eventName));
+  return nextState.weeks || [];
 }
 
 export async function deleteWorkingWeek(weekId) {
