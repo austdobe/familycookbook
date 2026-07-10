@@ -45,6 +45,7 @@ function App() {
   const [resyncingLists, setResyncingLists] = useState(false);
   const [syncStatus, setSyncStatus] = useState("");
   const [syncingFirebase, setSyncingFirebase] = useState(false);
+  const [pageActionMenuOpen, setPageActionMenuOpen] = useState(false);
 
   useEffect(() => {
     loadData().then((nextData) => {
@@ -93,6 +94,7 @@ function App() {
     }
     return weeks.find((week) => week.id === weekId) || weeks[0] || null;
   }, [data, weekId, weeks]);
+  const selectedWeekSealed = Boolean(selectedWeekPlanState.sealed);
 
   useEffect(() => {
     if (!weeks.length) {
@@ -114,7 +116,7 @@ function App() {
   }, [selectedWeek?.id]);
 
   const resyncSelectedWeekLists = async () => {
-    if (!selectedWeek) {
+    if (!selectedWeek || selectedWeekSealed) {
       return;
     }
 
@@ -237,44 +239,70 @@ function App() {
           <div className="topbar-actions">
             {syncStatus ? <span className="pill">{syncStatus}</span> : null}
             {resyncStatus ? <span className="pill">{resyncStatus}</span> : null}
-            <button
-              className="quiet-button"
-              disabled={syncingFirebase}
-              onClick={syncFromFirebase}
-              type="button"
-            >
-              {syncingFirebase ? "Syncing..." : "Sync"}
-            </button>
-            {selectedWeek ? (
+            {selectedWeekSealed ? <span className="pill">Sealed</span> : null}
+            <div className="topbar-more-actions">
               <button
-                className="quiet-button"
-                disabled={resyncingLists}
-                onClick={resyncSelectedWeekLists}
+                aria-expanded={pageActionMenuOpen}
+                aria-label="Open page actions"
+                className="quiet-button topbar-more-button"
+                onClick={() => setPageActionMenuOpen((current) => !current)}
                 type="button"
               >
-                {resyncingLists ? "Updating..." : "Update Lists"}
+                ...
               </button>
-            ) : null}
-            {installPrompt ? (
-              <button
-                className="quiet-button"
-                onClick={async () => {
-                  installPrompt.prompt();
-                  await installPrompt.userChoice;
-                  setInstallPrompt(null);
-                }}
-                type="button"
-              >
-                Install
-              </button>
-            ) : null}
-            <button
-              className="quiet-button"
-              onClick={() => loadData().then(setData)}
-              type="button"
-            >
-              Refresh
-            </button>
+              {pageActionMenuOpen ? (
+                <div className="action-menu topbar-action-menu" role="menu">
+                  <button
+                    disabled={syncingFirebase}
+                    onClick={() => {
+                      setPageActionMenuOpen(false);
+                      syncFromFirebase();
+                    }}
+                    role="menuitem"
+                    type="button"
+                  >
+                    {syncingFirebase ? "Syncing..." : "Sync"}
+                  </button>
+                  {selectedWeek ? (
+                    <button
+                      disabled={resyncingLists || selectedWeekSealed}
+                      onClick={() => {
+                        setPageActionMenuOpen(false);
+                        resyncSelectedWeekLists();
+                      }}
+                      role="menuitem"
+                      type="button"
+                    >
+                      {selectedWeekSealed ? "Update Lists Locked" : resyncingLists ? "Updating..." : "Update Lists"}
+                    </button>
+                  ) : null}
+                  {installPrompt ? (
+                    <button
+                      onClick={async () => {
+                        setPageActionMenuOpen(false);
+                        installPrompt.prompt();
+                        await installPrompt.userChoice;
+                        setInstallPrompt(null);
+                      }}
+                      role="menuitem"
+                      type="button"
+                    >
+                      Install
+                    </button>
+                  ) : null}
+                  <button
+                    onClick={() => {
+                      setPageActionMenuOpen(false);
+                      loadData().then(setData);
+                    }}
+                    role="menuitem"
+                    type="button"
+                  >
+                    Refresh
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
         </header>
 
@@ -300,6 +328,7 @@ function App() {
               setUnitMode={setUnitMode}
               unitMode={unitMode}
               week={selectedWeek}
+              weekPlanState={selectedWeekPlanState}
               weeks={weeks}
               workingWeeks={workingWeeks}
             />
@@ -324,10 +353,11 @@ function App() {
               setUnitMode={setUnitMode}
               unitMode={unitMode}
               week={selectedWeek}
+              isSealed={selectedWeekSealed}
             />
           ) : null}
           {view === "prep" ? (
-            <PrepView search={search} week={selectedWeek} />
+            <PrepView isSealed={selectedWeekSealed} search={search} week={selectedWeek} />
           ) : null}
         </section>
       </main>
@@ -348,6 +378,7 @@ function WeekView({
   setUnitMode,
   unitMode,
   week,
+  weekPlanState: appWeekPlanState,
   weeks,
   workingWeeks,
 }) {
@@ -361,6 +392,7 @@ function WeekView({
   const [confirmAction, setConfirmAction] = useState(null);
   const [draggingDay, setDraggingDay] = useState("");
   const [draggingRecipeId, setDraggingRecipeId] = useState("");
+  const isSealed = Boolean(weekPlanState.sealed);
 
   useEffect(() => {
     if (!week) {
@@ -403,8 +435,44 @@ function WeekView({
   const readerDoc = selectedRow ? selectedRowDoc : selectedDoc;
   const cardEditorRow = sourceMenuRows.find((row) => row.Day === cardEditorDay) || null;
   const canDeleteWeek = plannedMenuRows.length === 0 && workingWeeks.some((candidate) => candidate.id === week.id);
+  const sealWeek = async () => {
+    await saveWeekPlanState(week.id, {
+      ...(appWeekPlanState || weekPlanState),
+      menuRows: sourceMenuRows,
+      sealed: true,
+      sealedAt: new Date().toISOString(),
+    });
+    setWeekActionMenuOpen(false);
+    setMealEditorOpen(false);
+  };
+  const unsealWeek = async () => {
+    await saveWeekPlanState(week.id, {
+      ...(appWeekPlanState || weekPlanState),
+      menuRows: sourceMenuRows,
+      sealed: false,
+      unsealedAt: new Date().toISOString(),
+    });
+    setWeekActionMenuOpen(false);
+  };
+  const requestUnsealWeek = () => {
+    if (!isSealed) {
+      return;
+    }
+    setWeekActionMenuOpen(false);
+    setConfirmAction({
+      confirmLabel: "Unseal Week",
+      description: "This week is sealed. Unsealing allows menu, grocery, prep, and list updates to change again.",
+      title: "Unseal this week?",
+      tone: "danger",
+      onConfirm: unsealWeek,
+    });
+  };
 
   const saveRows = async (nextRows) => {
+    if (isSealed) {
+      requestUnsealWeek();
+      return null;
+    }
     const nextWeek = await saveWeekMenuRows({
       archiveDocs,
       menuRows: nextRows,
@@ -581,6 +649,11 @@ function WeekView({
     }
   };
   const openMealEditor = () => {
+    if (isSealed) {
+      requestUnsealWeek();
+      setWeekActionMenuOpen(false);
+      return;
+    }
     if (!selectedDay && selectedRow?.Day) {
       setSelectedDay(selectedRow.Day);
     }
@@ -616,12 +689,12 @@ function WeekView({
         weeks={weeks}
       />
       <CardEditDialog
-        canDeleteCard={isCustomMenuCard(cardEditorRow, week)}
+        canDeleteCard={!isSealed && isCustomMenuCard(cardEditorRow, week)}
         onClearCard={() => requestClearCard(cardEditorRow)}
         onClose={() => setCardEditorDay("")}
         onDeleteCard={() => requestDeleteCard(cardEditorRow)}
         onRenameCard={(nextTitle) => renameCard(cardEditorRow, nextTitle)}
-        open={Boolean(cardEditorRow)}
+        open={!isSealed && Boolean(cardEditorRow)}
         row={cardEditorRow}
       />
       <ConfirmDialog
@@ -637,6 +710,7 @@ function WeekView({
         <div className="section-title">
           <h3>Weekly Menu</h3>
           <div className="section-actions">
+            {isSealed ? <span className="pill">Sealed</span> : null}
             <span className="pill">{plannedMenuRows.length} meals</span>
           </div>
         </div>
@@ -647,19 +721,20 @@ function WeekView({
               docs={allRecipeDocs}
               key={`${row.Day}-${row["Recipe path"] || row["Recipe file"] || row.Meal}`}
               row={row}
-              draggingDay={draggingDay}
-              draggingRecipeId={draggingRecipeId}
-              editMode={mealEditorOpen}
+              draggingDay={isSealed ? "" : draggingDay}
+              draggingRecipeId={isSealed ? "" : draggingRecipeId}
+              editMode={!isSealed && mealEditorOpen}
+              isSealed={isSealed}
               selectedDay={selectedRow?.Day || ""}
               selectedDoc={readerDoc}
               onDragEnd={() => {
                 setDraggingDay("");
                 setDraggingRecipeId("");
               }}
-              onDragStart={(nextRow) => setDraggingDay(nextRow.Day)}
-              onDropMeal={moveMealToDay}
-              onDropRecipe={assignRecipeToDay}
-              onEditCard={(nextRow) => setCardEditorDay(nextRow.Day)}
+              onDragStart={(nextRow) => !isSealed && setDraggingDay(nextRow.Day)}
+              onDropMeal={isSealed ? requestUnsealWeek : moveMealToDay}
+              onDropRecipe={isSealed ? requestUnsealWeek : assignRecipeToDay}
+              onEditCard={(nextRow) => !isSealed && setCardEditorDay(nextRow.Day)}
               onSelect={(nextId, nextRow) => {
                 setSelectedDay(nextRow.Day);
                 setActiveDocId(nextId);
@@ -669,11 +744,11 @@ function WeekView({
               }}
             />
           )) : <div className="empty">No planned meals match the current search.</div>}
-          {mealEditorOpen ? <AddWeekCardButton onClick={addCustomWeekCard} /> : null}
+          {!isSealed && mealEditorOpen ? <AddWeekCardButton onClick={addCustomWeekCard} /> : null}
         </div>
       </section>
 
-      {mealEditorOpen ? (
+      {!isSealed && mealEditorOpen ? (
         <WeekMealAssignmentPanel
           archiveDocs={archiveDocs}
           onAddRecipe={() => setRecipeDialogMode("add")}
@@ -726,7 +801,10 @@ function WeekView({
           setWeekActionMenuOpen(false);
           setWeekCreatorOpen(true);
         }}
+        isSealed={isSealed}
         onEditWeek={openMealEditor}
+        onRequestUnsealWeek={requestUnsealWeek}
+        onSealWeek={sealWeek}
         setMenuOpen={setWeekActionMenuOpen}
       />
     </div>
@@ -1306,6 +1384,7 @@ function RecipePicker({ docs, onChoose, onRecipeDragEnd, onRecipeDragStart }) {
   const [category, setCategory] = useState("all");
   const [quickOnly, setQuickOnly] = useState(false);
   const [draggingRecipeId, setDraggingRecipeId] = useState("");
+  const isSealed = Boolean(weekPlanState.sealed);
   const categories = useMemo(() => {
     const values = docs
       .map((doc) => normalizeRecipeCategory(doc.recipe?.category || pathCategory(doc.path)))
@@ -1584,10 +1663,13 @@ function removePassiveTimingText(value) {
 }
 
 function WeekActionMenu({
+  isSealed,
   menuOpen,
   onAddRecipe,
   onAddWeek,
   onEditWeek,
+  onRequestUnsealWeek,
+  onSealWeek,
   setMenuOpen,
 }) {
   return (
@@ -1595,7 +1677,10 @@ function WeekActionMenu({
       {menuOpen ? (
         <div className="action-menu" role="menu">
           <button onClick={onAddWeek} role="menuitem" type="button">Add Week</button>
-          <button onClick={onEditWeek} role="menuitem" type="button">Edit Week</button>
+          <button disabled={isSealed} onClick={onEditWeek} role="menuitem" type="button">Edit Week</button>
+          <button onClick={isSealed ? onRequestUnsealWeek : onSealWeek} role="menuitem" type="button">
+            {isSealed ? "Unseal Week Lists" : "Seal Week Lists"}
+          </button>
           <button onClick={onAddRecipe} role="menuitem" type="button">Create New Recipe</button>
         </div>
       ) : null}
@@ -1740,6 +1825,7 @@ function DayCard({
   draggingDay,
   draggingRecipeId,
   editMode,
+  isSealed = false,
   onDragEnd,
   onDragStart,
   onDropMeal,
@@ -1752,10 +1838,10 @@ function DayCard({
 }) {
   const doc = findRecipeDocForMenuRow(row, docs);
   const missingSelectionId = missingRecipeSelectionId(row);
-  const canDrag = hasMeal(row);
+  const canDrag = !isSealed && hasMeal(row);
   const isDragging = draggingDay === row.Day;
-  const isRecipeDropTarget = Boolean(draggingRecipeId);
-  const isDropTarget = isRecipeDropTarget || Boolean(draggingDay && draggingDay !== row.Day);
+  const isRecipeDropTarget = !isSealed && Boolean(draggingRecipeId);
+  const isDropTarget = isRecipeDropTarget || Boolean(!isSealed && draggingDay && draggingDay !== row.Day);
   const isActive = row.Day === selectedDay
     || (selectedDoc && doc && selectedDoc.id === doc.id)
     || (!doc && activeDocId === missingSelectionId);
@@ -1769,7 +1855,7 @@ function DayCard({
       onDragEnd={onDragEnd}
       onDragOver={(event) => {
         const dragTypes = Array.from(event.dataTransfer.types || []);
-        if (dragTypes.includes(RECIPE_DRAG_TYPE) || draggingRecipeId || (draggingDay && draggingDay !== row.Day)) {
+        if (!isSealed && (dragTypes.includes(RECIPE_DRAG_TYPE) || draggingRecipeId || (draggingDay && draggingDay !== row.Day))) {
           event.preventDefault();
           event.dataTransfer.dropEffect = dragTypes.includes(RECIPE_DRAG_TYPE) || draggingRecipeId ? "copy" : "move";
         }
@@ -1806,7 +1892,7 @@ function DayCard({
       }}
       role="button"
       tabIndex={0}
-      title={isRecipeDropTarget ? "Drop this recipe here" : canDrag ? "Drag to move this meal to another day" : "Drop a meal here"}
+      title={isSealed ? "Week lists are sealed" : isRecipeDropTarget ? "Drop this recipe here" : canDrag ? "Drag to move this meal to another day" : "Drop a meal here"}
     >
       {editMode ? (
         <button
@@ -1826,7 +1912,7 @@ function DayCard({
       ) : null}
       <div className="meta-row">
         <span className="pill">{row.Day || "Day"}</span>
-        <span className="drag-hint">{isRecipeDropTarget ? "Drop recipe" : canDrag ? "Drag" : "Drop here"}</span>
+        <span className="drag-hint">{isSealed ? "Sealed" : isRecipeDropTarget ? "Drop recipe" : canDrag ? "Drag" : "Drop here"}</span>
       </div>
       <h3>{row.Meal || "Open"}</h3>
       <div className="meta-row">
@@ -1851,7 +1937,7 @@ function AddWeekCardButton({ onClick }) {
   );
 }
 
-function GroceryView({ ingredientMode, search, setIngredientMode, setUnitMode, unitMode, week }) {
+function GroceryView({ ingredientMode, isSealed = false, search, setIngredientMode, setUnitMode, unitMode, week }) {
   const [groceryState, setGroceryState] = useState({ checkedKeys: [], manualItems: [], sections: [] });
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
   const [editingGroceryKey, setEditingGroceryKey] = useState("");
@@ -1926,11 +2012,17 @@ function GroceryView({ ingredientMode, search, setIngredientMode, setUnitMode, u
     }))
     .filter((section) => section.items.length), checkedKeys);
   const openAddDialog = () => {
+    if (isSealed) {
+      return;
+    }
     setEditingGroceryKey("");
     setManualForm(emptyManualGroceryForm(categoryOptions[0] || "Other"));
     setManualDialogOpen(true);
   };
   const openEditDialog = (item) => {
+    if (isSealed) {
+      return;
+    }
     setEditingGroceryKey(item._key);
     setManualForm({
       alternatives: item["Acceptable alternatives"] || "",
@@ -1948,7 +2040,7 @@ function GroceryView({ ingredientMode, search, setIngredientMode, setUnitMode, u
   };
   const saveManualItem = async (event) => {
     event.preventDefault();
-    if (!manualForm.item.trim()) {
+    if (isSealed || !manualForm.item.trim()) {
       return;
     }
     const section = resolveGrocerySectionTitle(manualForm.section, categoryOptions) || categoryOptions[0] || "Other";
@@ -1962,6 +2054,9 @@ function GroceryView({ ingredientMode, search, setIngredientMode, setUnitMode, u
     closeManualDialog();
   };
   const removeGroceryItem = async (item) => {
+    if (isSealed) {
+      return;
+    }
     await saveGroceryState(week.id, removeGroceryItemState(week, groceryState, sourceGrocerySections, item._key));
   };
 
@@ -1970,12 +2065,12 @@ function GroceryView({ ingredientMode, search, setIngredientMode, setUnitMode, u
       <section className="card grocery-toolbar">
         <div>
           <h3>Shopping Checklist</h3>
-          <p>Checked items stay saved for this week.</p>
+          <p>{isSealed ? "This grocery list is sealed for this week." : "Checked items stay saved for this week."}</p>
         </div>
         <div className="grocery-toolbar-actions">
           <IngredientDetailToggle mode={ingredientMode} setMode={setIngredientMode} />
           <QuantityUnitToggle mode={unitMode} setMode={setUnitMode} />
-          <button className="quiet-button" onClick={() => clearGroceryState(week.id)} type="button">Clear Checks</button>
+          <button className="quiet-button" disabled={isSealed} onClick={() => clearGroceryState(week.id)} type="button">Clear Checks</button>
         </div>
       </section>
 
@@ -1986,7 +2081,8 @@ function GroceryView({ ingredientMode, search, setIngredientMode, setUnitMode, u
           key={section.title}
           onEdit={openEditDialog}
           onRemove={removeGroceryItem}
-          onToggle={(item, checked) => toggleGroceryItem(week.id, item._key, checked)}
+          onToggle={(item, checked) => !isSealed && toggleGroceryItem(week.id, item._key, checked)}
+          isSealed={isSealed}
           section={section}
           unitMode={unitMode}
         />
@@ -1994,6 +2090,7 @@ function GroceryView({ ingredientMode, search, setIngredientMode, setUnitMode, u
       <button
         aria-label="Add grocery item"
         className="grocery-fab"
+        disabled={isSealed}
         onClick={openAddDialog}
         type="button"
       >
@@ -2077,6 +2174,9 @@ function GroceryView({ ingredientMode, search, setIngredientMode, setUnitMode, u
                 <button
                   className="mini-button"
                   onClick={async () => {
+                    if (isSealed) {
+                      return;
+                    }
                     await saveGroceryState(week.id, removeGroceryItemState(week, groceryState, sourceGrocerySections, editingGroceryKey));
                     closeManualDialog();
                   }}
@@ -2095,7 +2195,7 @@ function GroceryView({ ingredientMode, search, setIngredientMode, setUnitMode, u
   );
 }
 
-function GrocerySection({ checkedKeys, ingredientMode, onEdit, onRemove, onToggle, section, unitMode }) {
+function GrocerySection({ checkedKeys, ingredientMode, isSealed = false, onEdit, onRemove, onToggle, section, unitMode }) {
   const [expandedKeys, setExpandedKeys] = useState([]);
   const headers = orderedGroceryHeaders(section.items);
   const visibleHeaders = ingredientMode === "simple" ? headers.filter(isEssentialGroceryHeader) : headers;
@@ -2156,6 +2256,7 @@ function GrocerySection({ checkedKeys, ingredientMode, onEdit, onRemove, onToggl
                       <input
                         checked={checked}
                         className="grocery-check"
+                        disabled={isSealed}
                         onChange={(event) => onToggle(item, event.target.checked)}
                         onDoubleClick={(event) => event.stopPropagation()}
                         type="checkbox"
@@ -2175,8 +2276,8 @@ function GrocerySection({ checkedKeys, ingredientMode, onEdit, onRemove, onToggl
                   )) : null}
                   <td className="check-column grocery-edit-cell" data-label="Edit">
                     <div className="grocery-row-actions">
-                      <button className="mini-button neutral" onClick={() => onEdit(item)} onDoubleClick={(event) => event.stopPropagation()} type="button">Edit</button>
-                      <button className="mini-button" onClick={() => onRemove(item)} onDoubleClick={(event) => event.stopPropagation()} type="button">Remove</button>
+                      <button className="mini-button neutral" disabled={isSealed} onClick={() => onEdit(item)} onDoubleClick={(event) => event.stopPropagation()} type="button">Edit</button>
+                      <button className="mini-button" disabled={isSealed} onClick={() => onRemove(item)} onDoubleClick={(event) => event.stopPropagation()} type="button">Remove</button>
                     </div>
                   </td>
                 </tr>
@@ -2294,7 +2395,7 @@ function removeEmptyGrocerySections(sections) {
   return sections.filter((section) => section.items.length);
 }
 
-function PrepView({ search, week }) {
+function PrepView({ isSealed = false, search, week }) {
   const [prepState, setPrepState] = useState({ checkedKeys: [], sections: [] });
   const [prepDialogOpen, setPrepDialogOpen] = useState(false);
   const [editingPrepKey, setEditingPrepKey] = useState("");
@@ -2345,11 +2446,17 @@ function PrepView({ search, week }) {
     setEditingPrepKey("");
   };
   const openAddPrepDialog = () => {
+    if (isSealed) {
+      return;
+    }
     setEditingPrepKey("");
     setPrepForm(emptyPrepForm(sectionOptions[0] || "Sunday Prep"));
     setPrepDialogOpen(true);
   };
   const openEditPrepDialog = (section, task) => {
+    if (isSealed) {
+      return;
+    }
     setEditingPrepKey(prepTaskKey(week, section, task));
     setPrepForm({
       details: task.details || "",
@@ -2360,7 +2467,7 @@ function PrepView({ search, week }) {
   };
   const savePrepTask = async (event) => {
     event.preventDefault();
-    if (!prepForm.title.trim()) {
+    if (isSealed || !prepForm.title.trim()) {
       return;
     }
 
@@ -2377,11 +2484,11 @@ function PrepView({ search, week }) {
       <section className="card prep-toolbar">
         <div>
           <h3>Prep Checklist</h3>
-          <p>Prep checks stay saved for this week.</p>
+          <p>{isSealed ? "This prep list is sealed for this week." : "Prep checks stay saved for this week."}</p>
         </div>
         <div className="grocery-toolbar-actions">
-          <button className="quiet-button" onClick={openAddPrepDialog} type="button">Add Prep</button>
-          <button className="quiet-button" onClick={() => clearPrepState(week.id)} type="button">Clear Checks</button>
+          <button className="quiet-button" disabled={isSealed} onClick={openAddPrepDialog} type="button">Add Prep</button>
+          <button className="quiet-button" disabled={isSealed} onClick={() => clearPrepState(week.id)} type="button">Clear Checks</button>
         </div>
       </section>
 
@@ -2390,8 +2497,9 @@ function PrepView({ search, week }) {
           checkedKeys={checkedKeys}
           key={section.title}
           onEdit={(task) => openEditPrepDialog(section, task)}
-          onRemove={(task) => savePrepState(week.id, removePrepTaskState(prepState, sourcePrepSections, prepTaskKey(week, section, task)))}
-          onToggle={(task, checked) => togglePrepTask(week.id, prepTaskKey(week, section, task), checked)}
+          onRemove={(task) => !isSealed && savePrepState(week.id, removePrepTaskState(prepState, sourcePrepSections, prepTaskKey(week, section, task)))}
+          onToggle={(task, checked) => !isSealed && togglePrepTask(week.id, prepTaskKey(week, section, task), checked)}
+          isSealed={isSealed}
           section={section}
           week={week}
         />
@@ -2451,6 +2559,9 @@ function PrepView({ search, week }) {
                 <button
                   className="mini-button"
                   onClick={async () => {
+                    if (isSealed) {
+                      return;
+                    }
                     await savePrepState(week.id, removePrepTaskState(prepState, sourcePrepSections, editingPrepKey));
                     closePrepDialog();
                   }}
@@ -2469,7 +2580,7 @@ function PrepView({ search, week }) {
   );
 }
 
-function PrepSection({ checkedKeys, onEdit, onRemove, onToggle, section, week }) {
+function PrepSection({ checkedKeys, isSealed = false, onEdit, onRemove, onToggle, section, week }) {
   const tasks = parsePrepTasks(section.markdown);
 
   if (!tasks.length) {
@@ -2490,6 +2601,7 @@ function PrepSection({ checkedKeys, onEdit, onRemove, onToggle, section, week })
             <label className={`card prep-task ${checked ? "prep-checked" : ""}`} key={taskKey}>
               <input
                 checked={checked}
+                disabled={isSealed}
                 onChange={(event) => onToggle(task, event.target.checked)}
                 type="checkbox"
               />
@@ -2503,11 +2615,11 @@ function PrepSection({ checkedKeys, onEdit, onRemove, onToggle, section, week })
                 ) : null}
               </span>
               <span className="grocery-row-actions">
-                <button className="mini-button neutral" onClick={(event) => {
+                <button className="mini-button neutral" disabled={isSealed} onClick={(event) => {
                   event.preventDefault();
                   onEdit(task);
                 }} type="button">Edit</button>
-                <button className="mini-button" onClick={(event) => {
+                <button className="mini-button" disabled={isSealed} onClick={(event) => {
                   event.preventDefault();
                   onRemove(task);
                 }} type="button">Remove</button>

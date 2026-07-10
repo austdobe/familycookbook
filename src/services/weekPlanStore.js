@@ -4,7 +4,7 @@ import { firebaseIsConfigured, getFirebaseClient } from "./firebase.js";
 const householdId = import.meta.env.VITE_FIREBASE_HOUSEHOLD_ID || "family";
 
 function emptyState() {
-  return { menuRows: [] };
+  return { menuRows: [], sealed: false, sealedAt: "", unsealedAt: "" };
 }
 
 function storageKey(weekId) {
