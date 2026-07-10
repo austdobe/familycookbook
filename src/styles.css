@@ -1203,23 +1203,31 @@
   .grocery-mobile-main {
     align-items: baseline;
     display: flex;
-    gap: 7px;
+    gap: 8px;
     min-width: 0;
+    width: 100%;
   }
 
   .grocery-mobile-item {
-    font-size: 16px;
+    flex: 1 1 auto;
+    font-size: 18px;
     font-weight: 700;
+    line-height: 1.18;
     min-width: 0;
     overflow-wrap: anywhere;
   }
 
   .grocery-mobile-quantity {
     color: var(--muted);
-    flex: 0 0 auto;
-    font-size: 13px;
+    flex: 0 1 34%;
+    font-size: 12px;
     font-weight: 700;
-    white-space: nowrap;
+    line-height: 1.2;
+    max-width: 34%;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    text-align: right;
+    white-space: normal;
   }
 
   .grocery-table .grocery-check-cell {

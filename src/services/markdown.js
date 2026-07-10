@@ -5,6 +5,7 @@ export function markdownToHtml(markdown, options = {}) {
   const html = [];
   let index = 0;
   const unitMode = options.unitMode || "us";
+  let openCollapsibleSectionLevel = 0;
 
   while (index < lines.length) {
     const line = lines[index];
@@ -17,7 +18,22 @@ export function markdownToHtml(markdown, options = {}) {
     const heading = line.match(/^(#{1,6})\s+(.+)$/);
     if (heading) {
       const level = Math.min(heading[1].length, 3);
-      html.push(`<h${level}>${inlineMarkdown(heading[2])}</h${level}>`);
+      if (openCollapsibleSectionLevel && level <= openCollapsibleSectionLevel) {
+        html.push("</details>");
+        openCollapsibleSectionLevel = 0;
+      }
+      if (level === 2 && isCollapsibleRecipeSection(heading[2])) {
+        html.push(`
+          <details class="collapsible-section recipe-ingredients-section" open>
+            <summary>
+              <span class="collapsible-section-title">${inlineMarkdown(heading[2])}</span>
+              <span class="collapsible-section-indicator" aria-hidden="true"></span>
+            </summary>
+        `);
+        openCollapsibleSectionLevel = level;
+      } else {
+        html.push(`<h${level}>${inlineMarkdown(heading[2])}</h${level}>`);
+      }
       index += 1;
       continue;
     }
@@ -53,7 +69,15 @@ export function markdownToHtml(markdown, options = {}) {
     html.push(`<p>${paragraph.map(inlineMarkdown).join("<br>")}</p>`);
   }
 
+  if (openCollapsibleSectionLevel) {
+    html.push("</details>");
+  }
+
   return html.join("");
+}
+
+function isCollapsibleRecipeSection(value) {
+  return String(value || "").replace(/[*_`]/g, "").trim().toLowerCase() === "ingredients";
 }
 
 function inlineMarkdown(value) {

@@ -225,16 +225,6 @@ function App() {
           ))}
         </select>
 
-        <label className="field-label" htmlFor="search-input">Search</label>
-        <input
-          className="search"
-          id="search-input"
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Recipe, ingredient, plan"
-          type="search"
-          value={search}
-        />
-
         <div className="sync-note">Updated {formatDateTime(data.generatedAt)} | {recipeSourceLabel}</div>
       </aside>
 
@@ -2129,7 +2119,7 @@ function GrocerySection({ checkedKeys, ingredientMode, onEdit, onRemove, onToggl
           <thead>
             <tr>
               <th className="check-column">Have</th>
-              {visibleHeaders.map((header) => <th key={header}>{header}</th>)}
+              {visibleHeaders.map((header) => <th className={groceryFieldClass(header)} key={header}>{header}</th>)}
               <th className="check-column">Edit</th>
             </tr>
           </thead>
@@ -3857,6 +3847,34 @@ function mergeGroceryItems(items) {
 function normalizeGroceryPurchaseQuantity(item) {
   const canonicalItem = canonicalGroceryItemKey(item.Item);
   const quantity = parseMergeableQuantity(item.Quantity);
+  if (canonicalItem === "onion") {
+    const onionCount = parseOnionShoppingQuantity(item.Quantity);
+    if (Number.isFinite(onionCount) && onionCount > 0) {
+      const roundedOnions = Math.max(1, Math.ceil(onionCount));
+      const originalQuantity = String(item.Quantity || "").trim();
+      return {
+        ...item,
+        Quantity: `${roundedOnions} ${displayQuantityUnit("onion", roundedOnions)}`,
+        "Preferred version/type": mergeGroceryDetails(
+          item["Preferred version/type"],
+          originalQuantity ? `Recipe amounts total about ${formatQuantityAmount(onionCount)} onion${Math.abs(onionCount - 1) < 0.0001 ? "" : "s"} (${originalQuantity})` : ""
+        ),
+      };
+    }
+  }
+  const canCount = parseCanShoppingQuantity(item);
+  if (Number.isFinite(canCount) && canCount > 0) {
+    const roundedCans = Math.max(1, Math.ceil(canCount));
+    const originalQuantity = String(item.Quantity || "").trim();
+    return {
+      ...item,
+      Quantity: `${roundedCans} ${displayQuantityUnit("can", roundedCans)}`,
+      "Preferred version/type": mergeGroceryDetails(
+        item["Preferred version/type"],
+        originalQuantity ? `Recipe amounts total about ${formatQuantityAmount(canCount)} can${Math.abs(canCount - 1) < 0.0001 ? "" : "s"} (${originalQuantity})` : ""
+      ),
+    };
+  }
   if (canonicalItem === "garlic" && quantity?.unitKey === "clove" && quantity.amount >= 10) {
     const bulbs = Math.ceil(quantity.amount / 12);
     return {
@@ -3866,6 +3884,120 @@ function normalizeGroceryPurchaseQuantity(item) {
     };
   }
   return item;
+}
+
+function parseCanShoppingQuantity(item) {
+  const originalQuantity = String(item?.Quantity || "").trim();
+  if (!originalQuantity) {
+    return null;
+  }
+  const parsedFragments = originalQuantity
+    .split(/\s+\+\s+/)
+    .map((fragment) => parseCanQuantityFragment(fragment))
+    .filter(Boolean);
+  if (!parsedFragments.length) {
+    return null;
+  }
+
+  const hasCanQuantity = parsedFragments.some((fragment) => fragment.unitKey === "can");
+  const canFriendlyItem = isCanFriendlyGroceryItem(item);
+  if (!hasCanQuantity && !canFriendlyItem) {
+    return null;
+  }
+
+  let totalCans = 0;
+  for (const fragment of parsedFragments) {
+    if (fragment.unitKey === "can") {
+      totalCans += fragment.amount;
+    } else if (fragment.unitKey === "cup" && (hasCanQuantity || canFriendlyItem)) {
+      totalCans += fragment.amount / cupsPerCanForItem(item);
+    } else {
+      return null;
+    }
+  }
+  return totalCans;
+}
+
+function parseCanQuantityFragment(value) {
+  const quantity = parseMergeableQuantity(value);
+  if (!quantity || !Number.isFinite(quantity.amount)) {
+    return null;
+  }
+  return {
+    amount: quantity.amount,
+    unitKey: quantity.unitKey,
+  };
+}
+
+function isCanFriendlyGroceryItem(item) {
+  const words = new Set(groceryItemWords([
+    item?.Item,
+    item?.["Preferred version/type"],
+    item?.["Acceptable alternatives"],
+  ].filter(Boolean).join(" ")));
+  if (words.has("coconut") && words.has("milk")) {
+    return true;
+  }
+  if (words.has("bean") && !words.has("green")) {
+    return true;
+  }
+  if (words.has("pumpkin")) {
+    return true;
+  }
+  const hasCanCue = words.has("can") || words.has("canned");
+  return hasCanCue && ["chile", "corn", "tomato"].some((word) => words.has(word));
+}
+
+function cupsPerCanForItem(item) {
+  const words = new Set(groceryItemWords(item?.Item || ""));
+  if (words.has("coconut") && words.has("milk")) {
+    return 1.7;
+  }
+  return 1.75;
+}
+
+function parseOnionShoppingQuantity(value) {
+  const fragments = String(value || "")
+    .split(/\s+\+\s+/)
+    .map((fragment) => parseOnionQuantityFragment(fragment))
+    .filter((amount) => Number.isFinite(amount) && amount > 0);
+  if (!fragments.length) {
+    return null;
+  }
+  return fragments.reduce((sum, amount) => sum + amount, 0);
+}
+
+function parseOnionQuantityFragment(value) {
+  const quantity = parseMergeableQuantity(value);
+  if (!quantity) {
+    return null;
+  }
+  const unitKey = quantity.unitKey;
+  if (!unitKey || unitKey === "onion" || unitKey === "medium") {
+    return quantity.amount;
+  }
+  if (unitKey === "small") {
+    return quantity.amount * 0.75;
+  }
+  if (unitKey === "large") {
+    return quantity.amount * 1.5;
+  }
+  if (unitKey === "cup") {
+    return quantity.amount;
+  }
+  if (unitKey === "tbsp") {
+    return quantity.amount / 16;
+  }
+  if (unitKey === "tsp") {
+    return quantity.amount / 48;
+  }
+  if (unitKey === "oz") {
+    return quantity.amount / 5;
+  }
+  if (unitKey === "lb") {
+    return quantity.amount * 3;
+  }
+  return null;
 }
 
 function mergeGroceryDetails(first, second) {
@@ -3918,7 +4050,7 @@ function parseMergeableQuantity(value) {
 }
 
 function normalizeQuantityUnit(value) {
-  const unit = String(value || "").toLowerCase().replace(/\./g, "").replace(/\s+/g, " ").trim();
+  const unit = String(value || "").toLowerCase().replace(/[.,]/g, " ").replace(/\s+/g, " ").trim();
   const aliases = {
     bag: "bag",
     bags: "bag",
@@ -3936,6 +4068,10 @@ function normalizeQuantityUnit(value) {
     heads: "head",
     lb: "lb",
     lbs: "lb",
+    large: "large",
+    medium: "medium",
+    onion: "onion",
+    onions: "onion",
     ounce: "oz",
     ounces: "oz",
     oz: "oz",
@@ -3945,6 +4081,7 @@ function normalizeQuantityUnit(value) {
     packets: "packet",
     pound: "lb",
     pounds: "lb",
+    small: "small",
     tbsp: "tbsp",
     tablespoon: "tbsp",
     tablespoons: "tbsp",
@@ -3952,7 +4089,8 @@ function normalizeQuantityUnit(value) {
     teaspoon: "tsp",
     teaspoons: "tsp",
   };
-  return aliases[unit] || singularizeGroceryWord(unit);
+  const firstUnitWord = unit.split(" ")[0] || "";
+  return aliases[unit] || aliases[firstUnitWord] || singularizeGroceryWord(unit);
 }
 
 function preferredQuantityUnit(value) {
@@ -3970,7 +4108,7 @@ function displayQuantityUnit(unit, amount) {
   if (!unit) {
     return "";
   }
-  const pluralUnits = new Set(["cup", "bag", "bulb", "bunch", "can", "clove", "head", "package", "packet"]);
+  const pluralUnits = new Set(["cup", "bag", "bulb", "bunch", "can", "clove", "head", "onion", "package", "packet"]);
   if (Math.abs(amount - 1) < 0.0001 || !pluralUnits.has(unit)) {
     return unit;
   }
