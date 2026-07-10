@@ -1,196 +1,105 @@
 # Family Cookbook Process
 
-This cookbook system has two jobs:
+This process describes the cookbook lifecycle. Product behavior, data ownership, and commands are documented separately:
 
-1. Help plan real weekly meals with clear groceries and prep.
-2. Turn recipes the family actually likes into reliable binder recipes.
+- Product context: `docs/product-context.md`
+- Source of truth: `docs/source-of-truth.md`
+- App architecture: `docs/app-architecture.md`
+- Operations: `docs/operations.md`
 
-The system is intentionally staged. New ideas stay lightweight until they are cooked. Only proven keepers get polished.
+## Lifecycle
+
+1. Capture meal ideas.
+2. Create or import a Stage 1 recipe.
+3. Build a weekly plan from saved recipes.
+4. Generate and edit grocery/prep snapshots.
+5. Cook the meal.
+6. Record feedback.
+7. Promote keepers to Stage 2 only after the family has cooked and approved them.
 
 ## 1. Capture Meal Ideas
 
-Start with `planning/meal-ideas-backlog.md`.
+Use `planning/meal-ideas-backlog.md` for loose ideas, cravings, cuisines to try, or meals that might solve a planning need.
 
-Use the backlog for loose ideas, cravings, cuisines to try, or meals that might solve a weekly planning need.
+Keep backlog entries lightweight. Do not overbuild recipes at this stage.
 
-Good backlog entries include:
+## 2. Create Or Import Stage 1 Recipes
 
-- Protein
-- Cuisine or flavor direction
-- Why the meal fits the family
-- Whether it might create useful leftovers
-- Any perishability concerns
+Current app workflow:
 
-Do not overbuild recipes at this stage. The backlog is just a parking place for ideas.
+- Use the Recipes view or Week action menu.
+- Add typed text, pasted recipe text, or a recipe photo.
+- Review/edit OCR output before saving.
+- Save as Stage 1 unless the family has already cooked and approved the recipe.
 
-## 2. Create Stage 1 Draft Recipes
+Markdown/template reference:
 
-When an idea is ready to use in a weekly plan, create the Stage 1 recipe directly in the best matching category folder under `recipe-archive/`. The weekly plan should then select that archive recipe through the app planning flow.
+- Stage 1 format: `templates/stage-1-recipe.md`
+- Archive folders: `recipe-archive/<category>/`
+- Agent operating rules: `AGENTS.md`
 
-Example:
+## 3. Build The Weekly Plan
 
-```text
-recipe-archive/chicken/
-  jamaican-jerk-chicken-coconut-rice-pineapple-mango-salsa.md
-recipe-archive/beef/
-  mongolian-beef-jasmine-rice-broccoli.md
-```
+Use the Week view to create a planning week, assign saved recipes to day cards, add custom cards, or create title-only placeholders.
 
-Use `templates/stage-1-recipe.md`.
+The app saves working week state to Firebase when configured. See `docs/source-of-truth.md` for the exact data owner.
 
-Stage 1 recipes are planning recipes. They need enough information to shop and cook once, but they do not need to be perfect.
+Committed weekly packet reference:
 
-Every Stage 1 recipe should include:
+- Weekly template: `templates/weekly-menu.md`
+- Packet folders: `weekly-plans/2026/week-[number]/`
 
-- Recipe name
-- Servings
-- Equipment
-- Ingredients with quantities
-- Basic instructions
-- Notes
+## 4. Generate And Edit Grocery/Prep Snapshots
 
-Instruction detail rule: every step that mixes, combines, marinates, seasons, stuffs, coats, makes a sauce, makes a dressing, makes a filling, or assembles a bowl must repeat the exact ingredient amounts used in that step. Do not write shorthand such as "mix the sauce ingredients" or "combine the marinade." Write the amounts again inside the step so the cook does not have to look back and forth between sections.
+Grocery and prep are week snapshots. Editing a grocery or prep row changes that week's snapshot, not the source recipe.
 
-Important rule: every new generated recipe starts as a Stage 1 draft in the best matching `recipe-archive/<category>/` folder unless a week-local file is explicitly requested. Do not write a Stage 2 binder recipe before the family has cooked it and decided it is worth keeping.
+Rule sources:
 
-## 3. Build the Weekly Menu
+- Grocery: `planning/grocery-rules.md`
+- Prep: `planning/prep-rules.md`
+- Grocery template: `templates/grocery-list.md`
+- Prep template: `templates/prep-guide.md`
 
-Committed weekly packets live in week-specific folders under `weekly-plans/2026/`. Working plans can be created in the app from category-filed Stage 1 archive recipes before a Markdown packet exists.
+Seal a week when grocery/prep should stop changing accidentally.
 
-Use `templates/weekly-menu.md` as the starting point for a weekly packet.
+## 5. Cook The Meals
 
-The weekly menu should balance:
+Cook from the app recipe view, an archive Markdown recipe, or a committed weekly packet snapshot.
 
-- Protein-forward meals
-- International variety
-- Perishability-first scheduling
-- Busy-night reality
-- Leftovers
+Capture practical notes while cooking:
 
-Schedule fragile ingredients early in the week. Seafood, fresh herbs, tender greens, and delicate produce should not sit around waiting for Friday unless there is a specific reason.
+- missing grocery details;
+- unclear instructions;
+- timing problems;
+- flavor or texture changes;
+- better equipment choices;
+- family reactions.
 
-## 4. Make the Grocery List From Recipes Only
+## 6. Review Recipes
 
-Use `templates/grocery-list.md`.
+Use the app feedback controls for cooked date, rating, notes, promotion notes, and ingredient changes.
 
-The grocery list is recipe-driven only. Assume nothing is on hand.
+Markdown review reference:
 
-Do not add household staples unless a recipe requires them.
+- `templates/recipe-review.md`
 
-Every grocery item should include:
+Feedback scripts are documented in `docs/operations.md`.
 
-- Quantity
-- Preferred version or type
-- Acceptable alternatives
-- Which recipe uses the item
+## 7. Promote Keepers
 
-Example:
+Only promote a recipe after it has been cooked and the family wants it again.
 
-| Quantity | Item | Preferred version/type | Acceptable alternatives | Recipe |
-|---:|---|---|---|---|
-| 2 lb | Chicken thighs | Boneless skinless | Chicken breast if cook time is adjusted | Korean chicken bowls |
+Promotion rule source:
 
-Use clear grocery specifications so another person can shop without guessing.
+- `AGENTS.md`
 
-Standing preference: use arrowroot instead of cornstarch unless a recipe specifically requires cornstarch.
+Stage 2 template:
 
-## 5. Create the Prep Guide
+- `templates/stage-2-recipe.md`
 
-Use `templates/prep-guide.md`.
+## 8. Update Standing Notes
 
-Prep guides are organized into these sections:
-
-- Sunday Dinner Support
-- Future Meal Prep
-- Protein Thaw Schedule
-- Wednesday Refresh
-- Do Not Prep Ahead
-
-Every prep task must be an actionable checklist item with:
-
-- Ingredients
-- Instructions
-- Storage method
-- Use-by date
-- Meal ownership
-
-Good prep helps the week without hurting food quality. Do not prep delicate items early if the texture, flavor, or safety will suffer.
-
-## 6. Cook the Meals
-
-Cook from the Stage 1 recipe in its `recipe-archive/<category>/` folder, a week-local draft if one was explicitly created, or the Stage 2 recipe listed in the weekly packet.
-
-While cooking, note anything that matters:
-
-- Missing grocery details
-- Confusing instructions
-- Timing problems
-- Flavor changes
-- Texture problems
-- Better equipment choices
-- Family reactions
-
-These notes are what make the cookbook better over time.
-
-## 7. Review Each New or Changed Recipe
-
-Use `templates/recipe-review.md`.
-
-Recipe reviews decide whether a recipe stays a draft, gets revised, or gets promoted.
-
-Review criteria:
-
-- Flavor
-- Ease
-- Leftovers
-- Cost
-- Time
-- Would make again
-- Version notes
-
-The key question is not whether the recipe was interesting. The key question is whether the family would want it again.
-
-## 8. Promote Keepers to Stage 2
-
-Only promote a recipe after cooking it and deciding it is a keeper.
-
-Use `templates/stage-2-recipe.md`.
-
-Stage 2 recipes are binder recipes. They should be detailed enough for a beginner or tired weeknight cook to follow successfully.
-
-Every Stage 2 recipe should include:
-
-- Overview
-- Equipment
-- Before you start
-- Detailed beginner-friendly instructions
-- Visual cues
-- Doneness indicators
-- Serving notes
-- Storage
-- Reheating
-- Version history
-- Family notes
-
-Instruction detail rule: Stage 2 recipes must be especially explicit about ingredient amounts inside each step. If a step makes meatballs, sauce, marinade, dressing, spice blend, filling, rice bowl, casserole layer, or topping, list the exact quantities in that step again, even when those same quantities already appear in the ingredient list.
-
-After review, keep the recipe in its most useful archive category. Add family ratings, version notes, and any changes learned during cooking before or during promotion.
-
-- `recipe-archive/promoted/`
-- `recipe-archive/breakfast/`
-- `recipe-archive/lunches/`
-- `recipe-archive/beef/`
-- `recipe-archive/chicken/`
-- `recipe-archive/pork/`
-- `recipe-archive/seafood/`
-- `recipe-archive/sides/`
-- `recipe-archive/sauces/`
-- `recipe-archive/desserts/`
-- `recipe-archive/turkey/`
-
-## 9. Update Planning Notes
-
-Use the planning files to preserve lessons across weeks:
+Update planning files when a durable preference or rule changes:
 
 - `planning/pantry-notes.md`
 - `planning/substitution-notes.md`
@@ -198,36 +107,4 @@ Use the planning files to preserve lessons across weeks:
 - `planning/prep-rules.md`
 - `planning/lessons-learned.md`
 
-Update these when a rule, preference, or recurring pattern becomes clear.
-
-Examples:
-
-- A protein cut worked better than expected.
-- A sauce should be doubled next time.
-- A meal did not reheat well.
-- A grocery specification caused confusion.
-- A prep task should move from Sunday to Wednesday.
-
-## 10. Weekly Packet Flow
-
-A complete weekly packet usually contains or links to:
-
-1. Weekly menu
-2. Archive draft recipes being tested
-3. Stage 2 keeper recipes being reused
-4. Grocery list
-5. Prep guide
-6. Recipe reviews after cooking
-7. Lessons learned
-
-The weekly folder is the committed packet for the week. New generated Stage 1 drafts live in the best matching category folder under `recipe-archive/`, and the app can assemble working weeks from those recipes before a final packet is written.
-
-## Recommended Next File
-
-Create the first Week 4 folder and packet here:
-
-```text
-weekly-plans/2026/week-04/week-04-family-cookbook-packet.md
-```
-
-That file should combine the weekly menu, grocery list link, prep guide link, and review checklist for the first planned week.
+Do not copy those rules into README or product docs. Link to the planning file that owns the rule.

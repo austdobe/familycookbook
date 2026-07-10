@@ -5,3 +5,4 @@ dist/
 .vite/
 tmp/
 npm-debug.log*
+.codex-remote-attachments/

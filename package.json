@@ -2,7 +2,7 @@
   "name": "family-cookbook",
   "version": "0.1.32",
   "private": true,
-  "description": "Markdown-first family cookbook with simple JavaScript helpers.",
+  "description": "Family cookbook and meal planning app with Firebase-backed planning workflows.",
   "scripts": {
     "index": "node scripts/index-recipes.js",
     "export:pdf": "node scripts/export-pdf.js",
