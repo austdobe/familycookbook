@@ -161,12 +161,23 @@
   gap: 12px;
 }
 
+.recipe-intake-dialog {
+  max-width: min(760px, calc(100vw - 32px));
+}
+
 .recipe-intake-header {
   align-items: center;
   display: flex;
   gap: 12px;
   justify-content: space-between;
   min-width: 0;
+}
+
+.recipe-intake-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 .recipe-intake-header h3,
@@ -210,6 +221,15 @@
   line-height: 1.45;
   min-height: 260px;
   resize: vertical;
+}
+
+.recipe-image-preview {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  max-height: 260px;
+  max-width: 100%;
+  object-fit: contain;
+  width: fit-content;
 }
 
 .recipe-intake-grid {
@@ -316,6 +336,51 @@
   min-width: 0;
 }
 
+.zero-state {
+  align-items: center;
+  background: #fffaf0;
+  border: 1px solid #eadfca;
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+  min-height: 280px;
+  padding: 28px;
+  text-align: center;
+}
+
+.zero-state h3 {
+  font-size: 20px;
+  margin: 0;
+}
+
+.zero-state p {
+  color: var(--muted);
+  margin: 0;
+  max-width: 420px;
+}
+
+.zero-state-icon {
+  align-items: center;
+  background: var(--teal);
+  border-radius: 999px;
+  color: #ffffff;
+  display: flex;
+  font-size: 28px;
+  font-weight: 700;
+  height: 58px;
+  justify-content: center;
+  line-height: 1;
+  width: 58px;
+}
+
+.zero-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
 .segmented-control {
   background: #edf2f1;
   border: 1px solid var(--line);
@@ -377,7 +442,7 @@
   cursor: pointer;
   display: grid;
   gap: 12px;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
 .prep-task input {
@@ -480,6 +545,71 @@
   z-index: 35;
 }
 
+.action-fab-wrap {
+  align-items: flex-end;
+  bottom: 22px;
+  display: grid;
+  gap: 10px;
+  justify-items: end;
+  position: fixed;
+  right: 24px;
+  z-index: 36;
+}
+
+.action-fab {
+  align-items: center;
+  background: var(--blue);
+  border: 1px solid var(--blue);
+  border-radius: 999px;
+  box-shadow: 0 14px 32px rgba(23, 33, 38, 0.24);
+  color: #ffffff;
+  cursor: pointer;
+  display: flex;
+  font-size: 34px;
+  font-weight: 700;
+  height: 58px;
+  justify-content: center;
+  line-height: 1;
+  width: 58px;
+}
+
+.action-menu {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 18px 42px rgba(23, 33, 38, 0.22);
+  display: grid;
+  min-width: 230px;
+  overflow: hidden;
+}
+
+.action-menu button {
+  background: #ffffff;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  min-height: 44px;
+  padding: 11px 14px;
+  text-align: left;
+}
+
+.action-menu button:last-child {
+  border-bottom: 0;
+}
+
+.action-menu button:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.action-menu button:not(:disabled):hover {
+  background: #f8faf9;
+  color: var(--teal-strong);
+}
+
 .week-fab {
   align-items: center;
   background: var(--blue);
@@ -502,11 +632,45 @@
 }
 
 .week-dialog {
-  max-width: 620px;
+  max-width: 660px;
 }
 
 .week-dialog-grid {
   grid-template-columns: minmax(90px, 1fr) minmax(90px, 1fr) minmax(150px, 1.4fr);
+}
+
+.week-target-summary {
+  align-items: center;
+  background: #f8faf9;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.week-assignment-panel {
+  background: #fffaf0;
+  border: 1px solid #eadfca;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.week-selected-day {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.week-selected-day strong {
+  font-size: 15px;
+  overflow-wrap: anywhere;
 }
 
 .week-day-actions {
@@ -538,6 +702,25 @@
   padding: 12px;
 }
 
+.placeholder-meal-editor {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+}
+
+.field-group-heading {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.field-group-heading h4 {
+  font-size: 14px;
+  margin: 0;
+}
+
 .week-menu-preview-header {
   align-items: center;
   display: flex;
@@ -553,6 +736,7 @@
 .week-menu-preview-list {
   display: grid;
   gap: 7px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .week-menu-preview-item {
@@ -565,14 +749,19 @@
   gap: 3px;
   grid-template-columns: minmax(116px, 0.8fr) minmax(0, 1.2fr);
   min-width: 0;
-  padding: 8px 10px;
+  min-height: 62px;
+  padding: 10px 12px;
   text-align: left;
   width: 100%;
 }
 
+.week-menu-preview-item:hover {
+  border-color: var(--teal);
+}
+
 .week-menu-preview-item.pending {
   border-color: var(--blue);
-  box-shadow: inset 3px 0 0 var(--blue);
+  box-shadow: 0 0 0 2px rgba(49, 109, 141, 0.16), inset 3px 0 0 var(--blue);
 }
 
 .week-menu-preview-item:not(.filled) .week-menu-preview-meal {
@@ -645,13 +834,19 @@
 }
 
 .grocery-dialog input,
-.grocery-dialog select {
+.grocery-dialog select,
+.grocery-dialog textarea {
   border: 1px solid var(--line);
   border-radius: 8px;
   color: var(--ink);
   min-height: 42px;
   padding: 9px 10px;
   width: 100%;
+}
+
+.grocery-dialog textarea {
+  line-height: 1.45;
+  resize: vertical;
 }
 
 .manual-grocery-grid {
@@ -860,6 +1055,10 @@
     flex-direction: column;
   }
 
+  .recipe-intake-header-actions {
+    justify-content: stretch;
+  }
+
   .recipe-intake-header .quiet-button,
   .recipe-intake-actions .primary-button {
     width: 100%;
@@ -879,8 +1078,13 @@
   }
 
   .prep-task {
+    grid-template-columns: auto minmax(0, 1fr);
     gap: 10px;
     padding: 13px;
+  }
+
+  .prep-task .grocery-row-actions {
+    grid-column: 2;
   }
 
   .grocery-fab {
@@ -888,6 +1092,20 @@
     height: 56px;
     right: 16px;
     width: 56px;
+  }
+
+  .action-fab-wrap {
+    bottom: 18px;
+    right: 16px;
+  }
+
+  .action-fab {
+    height: 56px;
+    width: 56px;
+  }
+
+  .action-menu {
+    min-width: min(250px, calc(100vw - 32px));
   }
 
   .week-fab {
@@ -934,8 +1152,17 @@
     grid-template-columns: 1fr;
   }
 
+  .week-menu-preview-list {
+    grid-template-columns: 1fr;
+  }
+
   .week-menu-preview-meta {
     grid-column: auto;
+  }
+
+  .week-selected-day {
+    display: grid;
+    gap: 4px;
   }
 
   .dialog-actions {

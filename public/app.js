@@ -89,7 +89,7 @@ function render() {
   }
 
   els.navButtons.forEach((button) => button.classList.toggle("active", button.dataset.view === state.view));
-  els.syncNote.textContent = `Data built ${formatDateTime(state.data.generatedAt)}`;
+  els.syncNote.textContent = `Updated ${formatDateTime(state.data.generatedAt)}`;
 
   if (state.view === "week") {
     renderWeek();
@@ -192,8 +192,8 @@ function renderRecipes() {
   const docs = state.data.archivedRecipes
     .filter((doc) => matchesSearch(`${doc.title} ${doc.summary} ${doc.path}`));
 
-  els.viewKicker.textContent = "Archive";
-  els.viewTitle.textContent = "Recipe Archive";
+  els.viewKicker.textContent = "Recipes";
+  els.viewTitle.textContent = "Recipe Library";
   renderArchiveRecipeList(docs);
 }
 
@@ -368,9 +368,9 @@ function renderArchiveRecipeList(docs) {
   els.content.innerHTML = `
     <div class="split-view">
       <div class="folder-tree">
-        ${docs.length ? renderFolderTree(buildFolderTree(docs)) : '<div class="empty">No archived recipes yet. Approved recipes will appear here after they move out of weekly folders.</div>'}
+        ${docs.length ? renderFolderTree(buildFolderTree(docs)) : '<div class="empty">No saved recipes yet. Add a recipe to start building your cookbook.</div>'}
       </div>
-      <article class="doc">${selected ? markdownToHtml(selected.markdown) : '<h1>Recipe Archive</h1><p>Promoted and archived recipes will render here.</p>'}</article>
+      <article class="doc">${selected ? markdownToHtml(selected.markdown) : '<h1>Recipe Library</h1><p>Saved recipes will appear here.</p>'}</article>
     </div>
   `;
 
@@ -378,7 +378,7 @@ function renderArchiveRecipeList(docs) {
 }
 
 function buildFolderTree(docs) {
-  const root = { name: "Recipe Archive", folders: new Map(), docs: [] };
+  const root = { name: "All Recipes", folders: new Map(), docs: [] };
 
   docs.forEach((doc) => {
     const parts = doc.path.split("/");
@@ -433,9 +433,24 @@ function renderArchiveDocButton(doc) {
   return `
     <button class="archive-recipe-button ${doc.id === state.activeDocId ? "active" : ""}" type="button" data-doc-id="${escapeHtml(doc.id)}">
       <span>${escapeHtml(doc.title)}</span>
-      <small>${escapeHtml(doc.fileName || doc.path)}</small>
+      <small>${escapeHtml(archiveDocMeta(doc))}</small>
     </button>
   `;
+}
+
+function archiveDocMeta(doc) {
+  const parts = String(doc.path || "").split("/");
+  const category = parts[0] === "recipe-archive" ? parts[1] : "";
+  return [category ? formatFolderName(category) : "", "Recipe"].filter(Boolean).join(" | ");
+}
+
+function friendlyDocType(type) {
+  return String(type || "note")
+    .replace(/firebase/i, "")
+    .replace(/markdown/i, "")
+    .replace(/-/g, " ")
+    .replace(/\s+/g, " ")
+    .trim() || "note";
 }
 
 function countFolderDocs(node) {
@@ -454,10 +469,9 @@ function renderDocButton(doc) {
   return `
     <button class="item-card ${doc.id === state.activeDocId ? "active" : ""}" type="button" data-doc-id="${escapeHtml(doc.id)}">
       <h3>${escapeHtml(doc.title)}</h3>
-      <p>${escapeHtml(doc.summary || doc.path)}</p>
+      <p>${escapeHtml(doc.summary || "Open this note to read details.")}</p>
       <div class="meta-row">
-        <span class="pill">${escapeHtml(doc.type.replace(/-/g, " "))}</span>
-        <span>${escapeHtml(doc.path)}</span>
+        <span class="pill">${escapeHtml(friendlyDocType(doc.type))}</span>
       </div>
     </button>
   `;

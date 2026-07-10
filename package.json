@@ -20,10 +20,12 @@
     "import:recipes": "node scripts/import-recipes-to-firebase.js"
   },
   "dependencies": {
+    "@tesseract.js-data/eng": "^1.0.0",
     "@vitejs/plugin-react": "^5.0.0",
     "firebase": "^12.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "tesseract.js": "^7.0.0",
     "vite": "^7.0.0"
   }
 }

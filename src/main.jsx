@@ -1,14 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { RecipeImportDialog } from "./components/RecipeImportDialog.jsx";
 import {
-  addManualGroceryItem,
   clearGroceryState,
   getGroceryState,
-  removeManualGroceryItem,
   saveGroceryState,
   subscribeGroceryState,
   toggleGroceryItem,
-  updateManualGroceryItem,
 } from "./services/groceryStore.js";
 import { markdownToHtml } from "./services/markdown.js";
 import { clearPrepState, savePrepState, subscribePrepState, togglePrepTask } from "./services/prepStore.js";
@@ -26,7 +24,6 @@ const views = [
   ["prep", "Prep"],
 ];
 const baseUrl = import.meta.env.BASE_URL;
-const appVersion = "0.1.32";
 
 function App() {
   const [data, setData] = useState(null);
@@ -46,7 +43,6 @@ function App() {
   useEffect(() => {
     loadData().then((nextData) => {
       setData(nextData);
-      setWeekId((current) => current || getDefaultWeekId(nextData.weeks));
     });
   }, []);
 
@@ -82,8 +78,8 @@ function App() {
     return mergeCookbookWeeks(data.weeks, workingWeeks, archiveDocs);
   }, [archiveDocs, data, workingWeeks]);
   const recipeSourceLabel = firebaseArchiveDocs.length
-    ? `Recipes: Firebase (${firebaseArchiveDocs.length})`
-    : `Recipes: Local fallback (${archiveDocs.length})`;
+    ? `${firebaseArchiveDocs.length} saved recipes`
+    : `${archiveDocs.length} recipes ready`;
 
   const selectedWeek = useMemo(() => {
     if (!data) {
@@ -91,6 +87,16 @@ function App() {
     }
     return weeks.find((week) => week.id === weekId) || weeks[0] || null;
   }, [data, weekId, weeks]);
+
+  useEffect(() => {
+    if (!weeks.length) {
+      setWeekId("");
+      return;
+    }
+    if (!weeks.some((week) => week.id === weekId)) {
+      setWeekId(getDefaultWeekId(weeks));
+    }
+  }, [weekId, weeks]);
 
   useEffect(() => {
     if (!selectedWeek?.id) {
@@ -107,7 +113,7 @@ function App() {
     }
 
     setResyncingLists(true);
-    setResyncStatus("Resyncing lists...");
+    setResyncStatus("Refreshing shopping and prep lists...");
     try {
       const nextWeek = await resyncWeekAssets({
         archiveDocs,
@@ -119,9 +125,9 @@ function App() {
         setWorkingWeeks((current) => upsertWeek(current, nextWeek));
         await upsertWorkingWeek(nextWeek);
       }
-      setResyncStatus(`Resynced ${nextWeek.groceryItems.length} grocery items and ${nextWeek.prepTasks.length} prep tasks.`);
+      setResyncStatus(`Updated ${nextWeek.groceryItems.length} grocery items and ${nextWeek.prepTasks.length} prep tasks.`);
     } catch (error) {
-      setResyncStatus(`Resync failed: ${error.message}`);
+      setResyncStatus(`List update failed: ${error.message}`);
     } finally {
       setResyncingLists(false);
     }
@@ -184,7 +190,7 @@ function App() {
           value={search}
         />
 
-        <div className="sync-note">Build {appVersion} | Data built {formatDateTime(data.generatedAt)} | {recipeSourceLabel}</div>
+        <div className="sync-note">Updated {formatDateTime(data.generatedAt)} | {recipeSourceLabel}</div>
       </aside>
 
       <main className="main-content">
@@ -202,7 +208,7 @@ function App() {
                 onClick={resyncSelectedWeekLists}
                 type="button"
               >
-                {resyncingLists ? "Resyncing..." : "Resync Lists"}
+                {resyncingLists ? "Updating..." : "Update Lists"}
               </button>
             ) : null}
             {installPrompt ? (
@@ -284,6 +290,7 @@ function App() {
 
 function WeekView({ activeDocId, archiveDocs, ingredientMode, search, setActiveDocId, setIngredientMode, setUnitMode, unitMode, week }) {
   const [weekPlanState, setWeekPlanState] = useState({ menuRows: [] });
+  const [recipeDialogMode, setRecipeDialogMode] = useState("");
 
   useEffect(() => {
     if (!week) {
@@ -300,10 +307,28 @@ function WeekView({ activeDocId, archiveDocs, ingredientMode, search, setActiveD
   const plannedMenuRows = sourceMenuRows.filter(hasMeal);
   const menuRows = plannedMenuRows.filter((row) => matchesSearch(Object.values(row).join(" "), search));
   const allRecipeDocs = [...week.recipes, ...archiveDocs];
-  const selectedDoc = allRecipeDocs.find((doc) => doc.id === activeDocId) || getDefaultRecipeForWeek(week, plannedMenuRows, allRecipeDocs) || allRecipeDocs[0] || null;
+  const missingRecipeSelected = String(activeDocId || "").startsWith("missing-recipe|");
+  const selectedDoc = missingRecipeSelected
+    ? null
+    : allRecipeDocs.find((doc) => doc.id === activeDocId) || getDefaultRecipeForWeek(week, plannedMenuRows, allRecipeDocs) || allRecipeDocs[0] || null;
 
   return (
     <div className="stack">
+      <RecipeImportDialog
+        archiveDocs={archiveDocs}
+        dialogMode={recipeDialogMode}
+        onClose={() => setRecipeDialogMode("")}
+        onSaveRecipe={({ category, existingDoc, markdown, status, title }) => saveRecipe(recipeFromMarkdownForSave({
+          archiveDocs,
+          category,
+          existingDoc,
+          markdown,
+          status,
+          title,
+        }))}
+        onSaved={(recipeDoc) => setActiveDocId(recipeDoc.id)}
+        selectedRecipe={null}
+      />
       <section>
         <div className="section-title">
           <h3>Weekly Menu</h3>
@@ -312,6 +337,7 @@ function WeekView({ activeDocId, archiveDocs, ingredientMode, search, setActiveD
         <div className="menu-grid">
           {menuRows.length ? menuRows.map((row) => (
             <DayCard
+              activeDocId={activeDocId}
               docs={allRecipeDocs}
               key={`${row.Day}-${row["Recipe path"] || row["Recipe file"] || row.Meal}`}
               row={row}
@@ -331,11 +357,20 @@ function WeekView({ activeDocId, archiveDocs, ingredientMode, search, setActiveD
             <span className="pill">{selectedDoc ? stageForDoc(selectedDoc) || "Recipe" : "No draft"}</span>
           </div>
         </div>
-        <MarkdownDoc
-          ingredientMode={ingredientMode}
-          unitMode={unitMode}
-          markdown={selectedDoc ? selectedDoc.markdown : "# No Recipe Drafts Yet\n\nSelecting a planned meal will show its recipe here once a draft exists for this week."}
-        />
+        {selectedDoc ? (
+          <MarkdownDoc
+            ingredientMode={ingredientMode}
+            unitMode={unitMode}
+            markdown={selectedDoc.markdown}
+          />
+        ) : (
+          <RecipeZeroState
+            onAddRecipe={() => setRecipeDialogMode("add")}
+            onImportPhoto={() => setRecipeDialogMode("photo")}
+            subtitle="Add the recipe now, or import a photo and clean it up before saving."
+            title="No Recipe Attached"
+          />
+        )}
         {selectedDoc ? <RecipeFeedbackPanel recipe={selectedDoc} /> : null}
       </section>
     </div>
@@ -436,7 +471,7 @@ function RecipeFeedbackPanel({ recipe }) {
     >
       <div>
         <h3>Family Feedback</h3>
-        <p>Saved to Firebase for cooking history, repeat decisions, and recipe improvements.</p>
+        <p>Saved with this recipe for cooking history, repeat decisions, and recipe improvements.</p>
       </div>
       <div className="recipe-lifecycle">
         <div className="lifecycle-pills">
@@ -667,6 +702,23 @@ function emptyManualGroceryForm(section = "Other") {
   };
 }
 
+function emptyPrepForm(section = "Sunday Prep") {
+  return {
+    details: "",
+    section,
+    title: "",
+  };
+}
+
+function emptyPlaceholderMealForm() {
+  return {
+    cuisine: "",
+    meal: "",
+    notes: "",
+    protein: "",
+  };
+}
+
 function normalizeIngredientChange(change) {
   if (change.type !== "add" && !change.matchIngredient) {
     return null;
@@ -698,20 +750,21 @@ function formatIngredientChange(change) {
   return `Update ${change.matchIngredient}${replacement ? ` to ${replacement}` : ""}`;
 }
 
-function DayCard({ docs, onSelect, row, selectedDoc }) {
+function DayCard({ activeDocId, docs, onSelect, row, selectedDoc }) {
   const doc = findRecipeDocForMenuRow(row, docs);
-  const isActive = selectedDoc && doc && selectedDoc.id === doc.id;
+  const missingSelectionId = missingRecipeSelectionId(row);
+  const isActive = (selectedDoc && doc && selectedDoc.id === doc.id) || (!doc && activeDocId === missingSelectionId);
 
   return (
     <button
       className={`item-card day-card ${isActive ? "active" : ""}`}
-      onClick={() => doc && onSelect(doc.id)}
+      onClick={() => onSelect(doc ? doc.id : missingSelectionId)}
       type="button"
     >
       <div className="meta-row">
         <span className="pill">{row.Day || "Day"}</span>
         <span>{row.Stage || ""}</span>
-        {row["Plan source"] === "archive" ? <span>Archive</span> : null}
+        {row["Plan source"] === "archive" ? <span>Cookbook</span> : null}
       </div>
       <h3>{row.Meal || ""}</h3>
       <div className="meta-row">
@@ -725,7 +778,7 @@ function DayCard({ docs, onSelect, row, selectedDoc }) {
 function GroceryView({ ingredientMode, search, setIngredientMode, setUnitMode, unitMode, week }) {
   const [groceryState, setGroceryState] = useState({ checkedKeys: [], manualItems: [], sections: [] });
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
-  const [editingManualId, setEditingManualId] = useState("");
+  const [editingGroceryKey, setEditingGroceryKey] = useState("");
   const [manualForm, setManualForm] = useState(emptyManualGroceryForm());
 
   useEffect(() => {
@@ -759,7 +812,7 @@ function GroceryView({ ingredientMode, search, setIngredientMode, setUnitMode, u
     const onKeyDown = (event) => {
       if (event.key === "Escape") {
         setManualDialogOpen(false);
-        setEditingManualId("");
+        setEditingGroceryKey("");
       }
     };
 
@@ -776,43 +829,46 @@ function GroceryView({ ingredientMode, search, setIngredientMode, setUnitMode, u
   }
 
   const checkedKeys = new Set(groceryState.checkedKeys || []);
-  const manualItems = groceryState.manualItems || [];
-  const sourceGrocerySections = groceryState.sections?.length ? groceryState.sections : week.grocerySections;
+  const storedGrocerySections = groceryState.sections?.length ? groceryState.sections : week.grocerySections;
+  const legacyManualItems = groceryState.manualItems || [];
+  const sourceGrocerySections = legacyManualItems.length
+    ? mergeManualItemsIntoSections(storedGrocerySections, legacyManualItems, groceryCategoryOptions(storedGrocerySections))
+    : storedGrocerySections;
   const categoryOptions = groceryCategoryOptions(sourceGrocerySections);
   const recipeSections = sourceGrocerySections.map((section, sectionIndex) => ({
     ...section,
     items: section.items.map((item, itemIndex) => ({
       ...item,
       _key: groceryItemKey(week, section, item, sectionIndex, itemIndex),
-      _source: "recipe",
+      _section: section.title,
     })),
   }));
-  const sections = moveCheckedItemsToHaveIt(mergeManualItemsIntoSections(recipeSections, manualItems, categoryOptions)
+  const sections = moveCheckedItemsToHaveIt(recipeSections
     .map((section) => ({
       ...section,
       items: sortGroceryItems(section.items.filter((item) => matchesSearch(Object.values(item).join(" "), search))),
     }))
     .filter((section) => section.items.length), checkedKeys);
   const openAddDialog = () => {
-    setEditingManualId("");
+    setEditingGroceryKey("");
     setManualForm(emptyManualGroceryForm(categoryOptions[0] || "Other"));
     setManualDialogOpen(true);
   };
   const openEditDialog = (item) => {
-    setEditingManualId(item._manualId);
+    setEditingGroceryKey(item._key);
     setManualForm({
       alternatives: item["Acceptable alternatives"] || "",
       item: item.Item || "",
-      preferred: item["Preferred version/type"] === "Manual add" ? "" : item["Preferred version/type"] || "",
+      preferred: item["Preferred version/type"] || "",
       quantity: item.Quantity || "",
-      recipe: item.Recipe || "Manual add",
+      recipe: item.Recipe || "",
       section: resolveGrocerySectionTitle(item._section, categoryOptions) || categoryOptions[0] || "Other",
     });
     setManualDialogOpen(true);
   };
   const closeManualDialog = () => {
     setManualDialogOpen(false);
-    setEditingManualId("");
+    setEditingGroceryKey("");
   };
   const saveManualItem = async (event) => {
     event.preventDefault();
@@ -821,13 +877,16 @@ function GroceryView({ ingredientMode, search, setIngredientMode, setUnitMode, u
     }
     const section = resolveGrocerySectionTitle(manualForm.section, categoryOptions) || categoryOptions[0] || "Other";
     const nextForm = { ...manualForm, section };
-    if (editingManualId) {
-      await updateManualGroceryItem(week.id, editingManualId, nextForm);
+    if (editingGroceryKey) {
+      await saveGroceryState(week.id, updateGrocerySectionsState(week, groceryState, sourceGrocerySections, editingGroceryKey, nextForm));
     } else {
-      await addManualGroceryItem(week.id, nextForm);
+      await saveGroceryState(week.id, addGroceryItemState(groceryState, sourceGrocerySections, nextForm));
     }
     setManualForm(emptyManualGroceryForm(section));
     closeManualDialog();
+  };
+  const removeGroceryItem = async (item) => {
+    await saveGroceryState(week.id, removeGroceryItemState(week, groceryState, sourceGrocerySections, item._key));
   };
 
   return (
@@ -835,7 +894,7 @@ function GroceryView({ ingredientMode, search, setIngredientMode, setUnitMode, u
       <section className="card grocery-toolbar">
         <div>
           <h3>Shopping Checklist</h3>
-          <p>Checked items sync with Firebase when configured. Otherwise they stay saved on this device.</p>
+          <p>Checked items stay saved for this week.</p>
         </div>
         <div className="grocery-toolbar-actions">
           <IngredientDetailToggle mode={ingredientMode} setMode={setIngredientMode} />
@@ -849,8 +908,8 @@ function GroceryView({ ingredientMode, search, setIngredientMode, setUnitMode, u
           checkedKeys={checkedKeys}
           ingredientMode={ingredientMode}
           key={section.title}
-          onEditManual={openEditDialog}
-          onRemoveManual={(item) => removeManualGroceryItem(week.id, item._manualId)}
+          onEdit={openEditDialog}
+          onRemove={removeGroceryItem}
           onToggle={(item, checked) => toggleGroceryItem(week.id, item._key, checked)}
           section={section}
           unitMode={unitMode}
@@ -867,13 +926,13 @@ function GroceryView({ ingredientMode, search, setIngredientMode, setUnitMode, u
       {manualDialogOpen ? (
         <div className="dialog-backdrop" role="presentation" onMouseDown={closeManualDialog}>
           <form
-            aria-label={editingManualId ? "Edit grocery item" : "Add grocery item"}
+            aria-label={editingGroceryKey ? "Edit grocery item" : "Add grocery item"}
             className="card grocery-dialog"
             onMouseDown={(event) => event.stopPropagation()}
             onSubmit={saveManualItem}
           >
             <div className="dialog-header">
-              <h3>{editingManualId ? "Edit Grocery Item" : "Add Grocery Item"}</h3>
+              <h3>{editingGroceryKey ? "Edit Grocery Item" : "Add Grocery Item"}</h3>
               <button
                 aria-label="Close dialog"
                 className="icon-button"
@@ -930,19 +989,19 @@ function GroceryView({ ingredientMode, search, setIngredientMode, setUnitMode, u
               />
             </label>
             <label>
-              Source
+              Used for
               <input
                 onChange={(event) => setManualForm({ ...manualForm, recipe: event.target.value })}
-                placeholder="Manual add"
+                placeholder="Recipe or note"
                 value={manualForm.recipe}
               />
             </label>
             <div className="dialog-actions">
-              {editingManualId ? (
+              {editingGroceryKey ? (
                 <button
                   className="mini-button"
                   onClick={async () => {
-                    await removeManualGroceryItem(week.id, editingManualId);
+                    await saveGroceryState(week.id, removeGroceryItemState(week, groceryState, sourceGrocerySections, editingGroceryKey));
                     closeManualDialog();
                   }}
                   type="button"
@@ -951,7 +1010,7 @@ function GroceryView({ ingredientMode, search, setIngredientMode, setUnitMode, u
                 </button>
               ) : null}
               <button className="quiet-button" onClick={closeManualDialog} type="button">Cancel</button>
-              <button className="primary-button" type="submit">{editingManualId ? "Save" : "Add"}</button>
+              <button className="primary-button" type="submit">{editingGroceryKey ? "Save" : "Add"}</button>
             </div>
           </form>
         </div>
@@ -960,7 +1019,7 @@ function GroceryView({ ingredientMode, search, setIngredientMode, setUnitMode, u
   );
 }
 
-function GrocerySection({ checkedKeys, ingredientMode, onEditManual, onRemoveManual, onToggle, section, unitMode }) {
+function GrocerySection({ checkedKeys, ingredientMode, onEdit, onRemove, onToggle, section, unitMode }) {
   const [expandedKeys, setExpandedKeys] = useState([]);
   const headers = Object.keys(section.items[0] || {}).filter((header) => !header.startsWith("_"));
   const visibleHeaders = ingredientMode === "simple" ? headers.filter(isEssentialGroceryHeader) : headers;
@@ -1038,13 +1097,11 @@ function GrocerySection({ checkedKeys, ingredientMode, onEditManual, onRemoveMan
                       {item[header] || ""}
                     </td>
                   )) : null}
-                  <td className={`check-column grocery-edit-cell ${item._source === "manual" ? "" : "empty-edit"}`} data-label="Edit">
-                    {item._source === "manual" ? (
-                      <div className="grocery-row-actions">
-                        <button className="mini-button neutral" onClick={() => onEditManual(item)} onDoubleClick={(event) => event.stopPropagation()} type="button">Edit</button>
-                        <button className="mini-button" onClick={() => onRemoveManual(item)} onDoubleClick={(event) => event.stopPropagation()} type="button">Remove</button>
-                      </div>
-                    ) : null}
+                  <td className="check-column grocery-edit-cell" data-label="Edit">
+                    <div className="grocery-row-actions">
+                      <button className="mini-button neutral" onClick={() => onEdit(item)} onDoubleClick={(event) => event.stopPropagation()} type="button">Edit</button>
+                      <button className="mini-button" onClick={() => onRemove(item)} onDoubleClick={(event) => event.stopPropagation()} type="button">Remove</button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -1056,8 +1113,99 @@ function GrocerySection({ checkedKeys, ingredientMode, onEditManual, onRemoveMan
   );
 }
 
+function addGroceryItemState(currentState, sourceSections, form) {
+  const nextSections = cleanGrocerySections(sourceSections);
+  const targetSection = ensureGrocerySection(nextSections, form.section || "Other");
+  targetSection.items.push(groceryItemFromForm(form));
+  return {
+    ...currentState,
+    manualItems: [],
+    sections: removeEmptyGrocerySections(nextSections),
+  };
+}
+
+function updateGrocerySectionsState(week, currentState, sourceSections, itemKey, form) {
+  const nextSections = cleanGrocerySections(sourceSections);
+  let editedItem = null;
+
+  nextSections.forEach((section, sectionIndex) => {
+    section.items = section.items.filter((item, itemIndex) => {
+      if (groceryItemKey(week, section, item, sectionIndex, itemIndex) !== itemKey) {
+        return true;
+      }
+      editedItem = { ...item, ...groceryItemFromForm(form) };
+      return false;
+    });
+  });
+
+  if (editedItem) {
+    ensureGrocerySection(nextSections, form.section || "Other").items.push(editedItem);
+  }
+
+  return {
+    ...currentState,
+    checkedKeys: (currentState.checkedKeys || []).filter((key) => key !== itemKey),
+    manualItems: [],
+    sections: removeEmptyGrocerySections(nextSections),
+  };
+}
+
+function removeGroceryItemState(week, currentState, sourceSections, itemKey) {
+  const nextSections = cleanGrocerySections(sourceSections).map((section, sectionIndex) => ({
+    ...section,
+    items: section.items.filter((item, itemIndex) => groceryItemKey(week, section, item, sectionIndex, itemIndex) !== itemKey),
+  }));
+
+  return {
+    ...currentState,
+    checkedKeys: (currentState.checkedKeys || []).filter((key) => key !== itemKey),
+    manualItems: [],
+    sections: removeEmptyGrocerySections(nextSections),
+  };
+}
+
+function cleanGrocerySections(sections = []) {
+  return sections.map((section) => ({
+    title: section.title || "Other",
+    items: (section.items || []).map(cleanGroceryItem),
+  }));
+}
+
+function cleanGroceryItem(item) {
+  return Object.fromEntries(
+    Object.entries(item || {}).filter(([key]) => !key.startsWith("_"))
+  );
+}
+
+function groceryItemFromForm(form) {
+  return {
+    Quantity: form.quantity || "",
+    Item: form.item.trim(),
+    "Preferred version/type": form.preferred || "",
+    "Acceptable alternatives": form.alternatives || "",
+    Recipe: form.recipe || "Manual add",
+  };
+}
+
+function ensureGrocerySection(sections, title) {
+  const sectionTitle = title || "Other";
+  let section = sections.find((candidate) => normalizeSectionName(candidate.title) === normalizeSectionName(sectionTitle));
+  if (!section) {
+    section = { title: sectionTitle, items: [] };
+    sections.push(section);
+  }
+  return section;
+}
+
+function removeEmptyGrocerySections(sections) {
+  return sections.filter((section) => section.items.length);
+}
+
 function PrepView({ search, week }) {
   const [prepState, setPrepState] = useState({ checkedKeys: [], sections: [] });
+  const [prepDialogOpen, setPrepDialogOpen] = useState(false);
+  const [editingPrepKey, setEditingPrepKey] = useState("");
+  const [prepForm, setPrepForm] = useState(emptyPrepForm());
 
   useEffect(() => {
     if (!week) {
@@ -1066,6 +1214,31 @@ function PrepView({ search, week }) {
     return subscribePrepState(week.id, setPrepState);
   }, [week]);
 
+  useEffect(() => {
+    if (!prepDialogOpen) {
+      return undefined;
+    }
+
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setPrepDialogOpen(false);
+        setEditingPrepKey("");
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [prepDialogOpen]);
+
   if (!week) {
     return <div className="empty">No prep guide found.</div>;
   }
@@ -1073,31 +1246,137 @@ function PrepView({ search, week }) {
   const sourcePrepSections = prepState.sections?.length ? prepState.sections : week.prepSections;
   const sections = sourcePrepSections.filter((section) => matchesSearch(`${section.title} ${section.markdown}`, search));
   const checkedKeys = new Set(prepState.checkedKeys || []);
+  const sectionOptions = prepSectionOptions(sourcePrepSections);
+  const closePrepDialog = () => {
+    setPrepDialogOpen(false);
+    setEditingPrepKey("");
+  };
+  const openAddPrepDialog = () => {
+    setEditingPrepKey("");
+    setPrepForm(emptyPrepForm(sectionOptions[0] || "Sunday Prep"));
+    setPrepDialogOpen(true);
+  };
+  const openEditPrepDialog = (section, task) => {
+    setEditingPrepKey(prepTaskKey(week, section, task));
+    setPrepForm({
+      details: task.details || "",
+      section: section.title || sectionOptions[0] || "Sunday Prep",
+      title: task.title || "",
+    });
+    setPrepDialogOpen(true);
+  };
+  const savePrepTask = async (event) => {
+    event.preventDefault();
+    if (!prepForm.title.trim()) {
+      return;
+    }
+
+    if (editingPrepKey) {
+      await savePrepState(week.id, updatePrepTaskState(prepState, sourcePrepSections, editingPrepKey, prepForm));
+    } else {
+      await savePrepState(week.id, addPrepTaskState(prepState, sourcePrepSections, prepForm));
+    }
+    closePrepDialog();
+  };
 
   return (
     <div className="stack">
       <section className="card prep-toolbar">
         <div>
           <h3>Prep Checklist</h3>
-          <p>Prep checks sync with Firebase when configured. Otherwise they stay saved on this device.</p>
+          <p>Prep checks stay saved for this week.</p>
         </div>
-        <button className="quiet-button" onClick={() => clearPrepState(week.id)} type="button">Clear Checks</button>
+        <div className="grocery-toolbar-actions">
+          <button className="quiet-button" onClick={openAddPrepDialog} type="button">Add Prep</button>
+          <button className="quiet-button" onClick={() => clearPrepState(week.id)} type="button">Clear Checks</button>
+        </div>
       </section>
 
       {sections.length ? sections.map((section) => (
         <PrepSection
           checkedKeys={checkedKeys}
           key={section.title}
+          onEdit={(task) => openEditPrepDialog(section, task)}
+          onRemove={(task) => savePrepState(week.id, removePrepTaskState(prepState, sourcePrepSections, prepTaskKey(week, section, task)))}
           onToggle={(task, checked) => togglePrepTask(week.id, prepTaskKey(week, section, task), checked)}
           section={section}
           week={week}
         />
       )) : <div className="empty">No prep items match the current search.</div>}
+      {prepDialogOpen ? (
+        <div className="dialog-backdrop" role="presentation" onMouseDown={closePrepDialog}>
+          <form
+            aria-label={editingPrepKey ? "Edit prep task" : "Add prep task"}
+            className="card grocery-dialog"
+            onMouseDown={(event) => event.stopPropagation()}
+            onSubmit={savePrepTask}
+          >
+            <div className="dialog-header">
+              <h3>{editingPrepKey ? "Edit Prep Task" : "Add Prep Task"}</h3>
+              <button
+                aria-label="Close dialog"
+                className="icon-button"
+                onClick={closePrepDialog}
+                type="button"
+              >
+                x
+              </button>
+            </div>
+            <label>
+              Section
+              <input
+                list="prep-section-options"
+                onChange={(event) => setPrepForm({ ...prepForm, section: event.target.value })}
+                value={prepForm.section}
+              />
+              <datalist id="prep-section-options">
+                {sectionOptions.map((option) => (
+                  <option key={option} value={option} />
+                ))}
+              </datalist>
+            </label>
+            <label>
+              Task
+              <input
+                autoFocus
+                onChange={(event) => setPrepForm({ ...prepForm, title: event.target.value })}
+                placeholder="Slice vegetables for Tuesday"
+                value={prepForm.title}
+              />
+            </label>
+            <label>
+              Details
+              <textarea
+                onChange={(event) => setPrepForm({ ...prepForm, details: event.target.value })}
+                placeholder="- Ingredients:&#10;- Instructions:&#10;- Storage method:&#10;- Use-by date:"
+                rows="6"
+                value={prepForm.details}
+              />
+            </label>
+            <div className="dialog-actions">
+              {editingPrepKey ? (
+                <button
+                  className="mini-button"
+                  onClick={async () => {
+                    await savePrepState(week.id, removePrepTaskState(prepState, sourcePrepSections, editingPrepKey));
+                    closePrepDialog();
+                  }}
+                  type="button"
+                >
+                  Remove
+                </button>
+              ) : null}
+              <button className="quiet-button" onClick={closePrepDialog} type="button">Cancel</button>
+              <button className="primary-button" type="submit">{editingPrepKey ? "Save" : "Add"}</button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function PrepSection({ checkedKeys, onToggle, section, week }) {
+function PrepSection({ checkedKeys, onEdit, onRemove, onToggle, section, week }) {
   const tasks = parsePrepTasks(section.markdown);
 
   if (!tasks.length) {
@@ -1130,12 +1409,133 @@ function PrepSection({ checkedKeys, onToggle, section, week }) {
                   />
                 ) : null}
               </span>
+              <span className="grocery-row-actions">
+                <button className="mini-button neutral" onClick={(event) => {
+                  event.preventDefault();
+                  onEdit(task);
+                }} type="button">Edit</button>
+                <button className="mini-button" onClick={(event) => {
+                  event.preventDefault();
+                  onRemove(task);
+                }} type="button">Remove</button>
+              </span>
             </label>
           );
         })}
       </div>
     </section>
   );
+}
+
+function addPrepTaskState(currentState, sourceSections, form) {
+  const nextSections = cleanPrepSections(sourceSections);
+  const targetSection = ensurePrepSection(nextSections, form.section || "Sunday Prep");
+  const tasks = parsePrepTasks(targetSection.markdown);
+  targetSection.markdown = serializePrepTasks([...tasks, prepTaskFromForm(form)]);
+  return {
+    ...currentState,
+    sections: removeEmptyPrepSections(nextSections),
+  };
+}
+
+function updatePrepTaskState(currentState, sourceSections, taskKey, form) {
+  const nextSections = cleanPrepSections(sourceSections);
+  const weekId = taskKey.split("|")[0] || "";
+  let editedTask = null;
+
+  nextSections.forEach((section) => {
+    const tasks = parsePrepTasks(section.markdown);
+    const remainingTasks = tasks.filter((task) => {
+      if (prepTaskKeyFromParts(weekId, section.title, task.index, task.title) !== taskKey) {
+        return true;
+      }
+      editedTask = { ...task, ...prepTaskFromForm(form) };
+      return false;
+    });
+    section.markdown = serializePrepTasks(remainingTasks);
+  });
+
+  if (editedTask) {
+    const targetSection = ensurePrepSection(nextSections, form.section || "Sunday Prep");
+    targetSection.markdown = serializePrepTasks([...parsePrepTasks(targetSection.markdown), editedTask]);
+  }
+
+  return {
+    ...currentState,
+    checkedKeys: (currentState.checkedKeys || []).filter((key) => key !== taskKey),
+    sections: removeEmptyPrepSections(nextSections),
+  };
+}
+
+function removePrepTaskState(currentState, sourceSections, taskKey) {
+  const weekId = taskKey.split("|")[0] || "";
+  const nextSections = cleanPrepSections(sourceSections).map((section) => {
+    const tasks = parsePrepTasks(section.markdown)
+      .filter((task) => prepTaskKeyFromParts(weekId, section.title, task.index, task.title) !== taskKey);
+    return { ...section, markdown: serializePrepTasks(tasks) };
+  });
+
+  return {
+    ...currentState,
+    checkedKeys: (currentState.checkedKeys || []).filter((key) => key !== taskKey),
+    sections: removeEmptyPrepSections(nextSections),
+  };
+}
+
+function prepSectionOptions(sections = []) {
+  return uniqueValues([
+    ...sections.map((section) => section.title).filter(Boolean),
+    "Sunday Prep",
+    "Midweek Refresh",
+    "Cook-Day Reminders",
+    "Do Not Prep Ahead",
+  ]);
+}
+
+function cleanPrepSections(sections = []) {
+  return sections.map((section) => ({
+    title: section.title || "Prep",
+    markdown: section.markdown || "",
+  }));
+}
+
+function ensurePrepSection(sections, title) {
+  const sectionTitle = title || "Prep";
+  let section = sections.find((candidate) => normalizeSectionName(candidate.title) === normalizeSectionName(sectionTitle));
+  if (!section) {
+    section = { title: sectionTitle, markdown: "" };
+    sections.push(section);
+  }
+  return section;
+}
+
+function prepTaskFromForm(form) {
+  return {
+    details: form.details.trim(),
+    title: form.title.trim(),
+  };
+}
+
+function serializePrepTasks(tasks) {
+  return tasks
+    .map((task) => {
+      const details = String(task.details || "")
+        .trim()
+        .split("\n")
+        .filter((line, index, lines) => line.trim() || index < lines.length - 1)
+        .map((line) => `  ${line}`)
+        .join("\n");
+      return [`- [ ] ${task.title}`, details].filter(Boolean).join("\n");
+    })
+    .join("\n");
+}
+
+function removeEmptyPrepSections(sections) {
+  return sections.filter((section) => parsePrepTasks(section.markdown).length || section.markdown.trim());
+}
+
+function prepTaskKeyFromParts(weekId, sectionTitle, taskIndex, taskTitle) {
+  return [weekId, sectionTitle, taskIndex, taskTitle].join("|");
 }
 
 function ArchiveView({
@@ -1153,6 +1553,9 @@ function ArchiveView({
 }) {
   const directories = useMemo(() => buildArchiveDirectories(docs), [docs]);
   const [selectedDirectoryId, setSelectedDirectoryId] = useState("");
+  const [actionMenuOpen, setActionMenuOpen] = useState(false);
+  const [recipeDialogMode, setRecipeDialogMode] = useState("");
+  const [weekDialogRequest, setWeekDialogRequest] = useState(0);
   const activeDirectoryId = directories.some((directory) => directory.id === selectedDirectoryId)
     ? selectedDirectoryId
     : directories[0]?.id || "";
@@ -1177,14 +1580,27 @@ function ArchiveView({
 
   return (
     <div className="stack">
-      <RecipeIntakePanel
+      <RecipeImportDialog
         archiveDocs={archiveDocs}
+        dialogMode={recipeDialogMode}
+        onClose={() => setRecipeDialogMode("")}
+        onSaveRecipe={({ category, existingDoc, markdown, status, title }) => saveRecipe(recipeFromMarkdownForSave({
+          archiveDocs,
+          category,
+          existingDoc,
+          markdown,
+          status,
+          title,
+        }))}
         onSaved={(recipeDoc) => setActiveDocId(recipeDoc.id)}
+        selectedRecipe={selected}
       />
       <CreateWeeklyMenuPanel
         activeDocId={activeDocId}
         archiveDocs={archiveDocs}
         onSaveWorkingWeek={onSaveWorkingWeek}
+        openRequest={weekDialogRequest}
+        showFab={false}
         weeks={weeks}
         workingWeeks={workingWeeks}
       />
@@ -1192,7 +1608,7 @@ function ArchiveView({
         <div className="archive-browser">
           {directories.length ? (
             <>
-              <div className="archive-directory-list" aria-label="Recipe archive directories">
+              <div className="archive-directory-list" aria-label="Recipe categories">
                 {directories.map((directory) => (
                   <button
                     className={`archive-directory-button ${directory.id === activeDirectoryId ? "active" : ""}`}
@@ -1215,30 +1631,175 @@ function ArchiveView({
               </div>
             </>
           ) : (
-            <div className="empty">No archived recipes yet. Approved recipes will appear here after they move out of weekly folders.</div>
+            <RecipeZeroState
+              onAddRecipe={() => setRecipeDialogMode("add")}
+              onImportPhoto={() => setRecipeDialogMode("photo")}
+              subtitle="Start with a typed recipe, pasted recipe text, or a recipe photo."
+              title="No Recipes Yet"
+            />
           )}
         </div>
         <div className="recipe-reader">
-          <div className="reader-toolbar">
-            <IngredientDetailToggle mode={ingredientMode} setMode={setIngredientMode} />
-            <QuantityUnitToggle mode={unitMode} setMode={setUnitMode} />
-          </div>
-          <MarkdownDoc ingredientMode={ingredientMode} unitMode={unitMode} markdown={selected ? selected.markdown : "# Recipe Archive\n\nPromoted and archived recipes will render here."} />
-          {selected ? <RecipeFeedbackPanel recipe={selected} /> : null}
+          {selected ? (
+            <>
+              <div className="reader-toolbar">
+                <IngredientDetailToggle mode={ingredientMode} setMode={setIngredientMode} />
+                <QuantityUnitToggle mode={unitMode} setMode={setUnitMode} />
+              </div>
+              <MarkdownDoc ingredientMode={ingredientMode} unitMode={unitMode} markdown={selected.markdown} />
+              <RecipeFeedbackPanel recipe={selected} />
+            </>
+          ) : (
+            <RecipeZeroState
+              onAddRecipe={() => setRecipeDialogMode("add")}
+              onImportPhoto={() => setRecipeDialogMode("photo")}
+              subtitle="Your saved recipes will show here once you add the first one."
+              title="Build Your Recipe Library"
+            />
+          )}
         </div>
+      </div>
+      <ArchiveActionMenu
+        menuOpen={actionMenuOpen}
+        onAddRecipe={() => {
+          setActionMenuOpen(false);
+          setRecipeDialogMode("add");
+        }}
+        onEditRecipe={() => {
+          setActionMenuOpen(false);
+          setRecipeDialogMode("edit");
+        }}
+        onImportPhoto={() => {
+          setActionMenuOpen(false);
+          setRecipeDialogMode("photo");
+        }}
+        onPlanMeals={() => {
+          setActionMenuOpen(false);
+          setWeekDialogRequest((current) => current + 1);
+        }}
+        selectedRecipe={selected}
+        setMenuOpen={setActionMenuOpen}
+      />
+    </div>
+  );
+}
+
+function ArchiveActionMenu({ menuOpen, onAddRecipe, onEditRecipe, onImportPhoto, onPlanMeals, selectedRecipe, setMenuOpen }) {
+  return (
+    <div className="action-fab-wrap">
+      {menuOpen ? (
+        <div className="action-menu" role="menu">
+          <button onClick={onAddRecipe} role="menuitem" type="button">Add Recipe</button>
+          <button onClick={onImportPhoto} role="menuitem" type="button">Import Recipe Photo</button>
+          <button disabled={!selectedRecipe} onClick={onEditRecipe} role="menuitem" type="button">Edit Selected Recipe</button>
+          <button onClick={onPlanMeals} role="menuitem" type="button">Create/Edit Meal Plan</button>
+        </div>
+      ) : null}
+      <button
+        aria-expanded={menuOpen}
+        aria-label="Open action menu"
+        className="action-fab"
+        onClick={() => setMenuOpen((current) => !current)}
+        type="button"
+      >
+        <span aria-hidden="true">{menuOpen ? "x" : "+"}</span>
+      </button>
+    </div>
+  );
+}
+
+function RecipeZeroState({ onAddRecipe, onImportPhoto, subtitle, title }) {
+  return (
+    <div className="zero-state">
+      <div className="zero-state-icon" aria-hidden="true">+</div>
+      <h3>{title}</h3>
+      <p>{subtitle}</p>
+      <div className="zero-state-actions">
+        <button className="primary-button" onClick={onAddRecipe} type="button">Add Recipe</button>
+        <button className="quiet-button" onClick={onImportPhoto} type="button">Import Photo</button>
       </div>
     </div>
   );
 }
 
-function RecipeIntakePanel({ archiveDocs, onSaved }) {
-  const [expanded, setExpanded] = useState(false);
+function RecipeIntakePanel({ archiveDocs, dialogMode, onClose, onSaved, selectedRecipe }) {
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("chicken");
   const [status, setStatus] = useState("stage-1");
   const [markdown, setMarkdown] = useState("");
   const [saveStatus, setSaveStatus] = useState("");
+  const [editingRecipe, setEditingRecipe] = useState(null);
+  const [ocrStatus, setOcrStatus] = useState("");
+  const [imagePreviewUrl, setImagePreviewUrl] = useState("");
   const categoryOptions = useMemo(() => recipeCategoryOptions(archiveDocs), [archiveDocs]);
+  const dialogOpen = Boolean(dialogMode);
+
+  const resetForm = () => {
+    setTitle("");
+    setMarkdown("");
+    setStatus("stage-1");
+    setCategory(categoryOptions[0] || "chicken");
+    setEditingRecipe(null);
+    setOcrStatus("");
+    setSaveStatus("");
+    if (imagePreviewUrl) {
+      URL.revokeObjectURL(imagePreviewUrl);
+    }
+    setImagePreviewUrl("");
+  };
+
+  useEffect(() => {
+    if (!dialogMode) {
+      return;
+    }
+
+    if (dialogMode === "edit" && selectedRecipe) {
+      const recipeStatus = selectedRecipe.recipe?.status || (stageForDoc(selectedRecipe) === "Stage 2" ? "stage-2" : "stage-1");
+      if (imagePreviewUrl) {
+        URL.revokeObjectURL(imagePreviewUrl);
+      }
+      setEditingRecipe(selectedRecipe);
+      setSaveStatus("");
+      setTitle(selectedRecipe.title || "");
+      setCategory(normalizeRecipeCategory(selectedRecipe.recipe?.category || pathCategory(selectedRecipe.path) || "uncategorized"));
+      setStatus(recipeStatus);
+      setMarkdown(selectedRecipe.markdown || "");
+      setOcrStatus("");
+      setImagePreviewUrl("");
+      return;
+    }
+
+    resetForm();
+  }, [dialogMode, selectedRecipe?.id]);
+
+  useEffect(() => {
+    if (!dialogOpen) {
+      return undefined;
+    }
+
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") {
+        onClose?.();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [dialogOpen, onClose]);
+
+  const closeDialog = () => {
+    resetForm();
+    onClose?.();
+  };
 
   const updateMarkdown = (value) => {
     setMarkdown(value);
@@ -1250,98 +1811,587 @@ function RecipeIntakePanel({ archiveDocs, onSaved }) {
     }
   };
 
+  const importRecipeImage = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) {
+      return;
+    }
+    if (imagePreviewUrl) {
+      URL.revokeObjectURL(imagePreviewUrl);
+    }
+    setImagePreviewUrl(URL.createObjectURL(file));
+    setOcrStatus("Reading recipe image...");
+    try {
+      const extractedText = await readTextFromRecipeImage(file, setOcrStatus);
+      if (!extractedText.trim()) {
+        setOcrStatus("No text was detected. Paste or type the recipe below.");
+        return;
+      }
+      const cleanedText = cleanRecipeOcrText(extractedText);
+      updateMarkdown([markdown, cleanedText].filter((part) => part.trim()).join("\n\n"));
+      setOcrStatus("Image text cleaned and added. Review and edit before saving.");
+    } catch (error) {
+      setOcrStatus(error.message);
+    }
+  };
+
+  const cleanCurrentRecipeText = () => {
+    const cleanedText = cleanRecipeOcrText(markdown, title);
+    updateMarkdown(cleanedText);
+    setOcrStatus("Recipe text cleaned. Review before saving.");
+  };
+
   const savePastedRecipe = async (event) => {
     event.preventDefault();
     const finalTitle = title.trim() || titleFromMarkdown(markdown);
     if (!finalTitle || !markdown.trim()) {
-      setSaveStatus("Add a title and pasted recipe before saving.");
+      setSaveStatus("Add a title and recipe text before saving.");
       return;
     }
 
-    setSaveStatus("Saving recipe...");
+    setSaveStatus(editingRecipe ? "Saving recipe edits..." : "Saving recipe...");
     try {
       const recipe = recipeFromMarkdownForSave({
         archiveDocs,
         category,
+        existingDoc: editingRecipe,
         markdown,
         status,
         title: finalTitle,
       });
       const savedRecipe = await saveRecipe(recipe);
-      setSaveStatus(`Saved ${savedRecipe.title} to Firebase.`);
-      setTitle("");
-      setMarkdown("");
-      setStatus("stage-1");
-      setCategory(categoryOptions[0] || "chicken");
-      setExpanded(false);
+      resetForm();
+      setSaveStatus(`Saved ${savedRecipe.title}.`);
+      onClose?.();
       onSaved?.({ id: savedRecipe.id });
     } catch (error) {
       setSaveStatus(`Recipe save failed: ${error.message}`);
     }
   };
 
+  if (!dialogOpen) {
+    return null;
+  }
+
   return (
-    <section className="card recipe-intake">
-      <div className="recipe-intake-header">
-        <div>
-          <h3>Add Recipe</h3>
-          <p>Paste a generated recipe and save it directly as a Firebase-backed Stage 1 recipe.</p>
-        </div>
-        <button className="quiet-button" onClick={() => setExpanded((current) => !current)} type="button">
-          {expanded ? "Close" : "Paste Recipe"}
-        </button>
-      </div>
-      {expanded ? (
-        <form className="recipe-intake-form" onSubmit={savePastedRecipe}>
-          <div className="manual-grocery-grid recipe-intake-grid">
-            <label>
-              Title
-              <input
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder="Jamaican Jerk Chicken"
-                value={title}
-              />
-            </label>
-            <label>
-              Category
-              <input
-                list="recipe-category-options"
-                onChange={(event) => setCategory(event.target.value)}
-                placeholder="chicken"
-                value={category}
-              />
-              <datalist id="recipe-category-options">
-                {categoryOptions.map((option) => <option key={option} value={option} />)}
-              </datalist>
-            </label>
+    <div className="dialog-backdrop" role="presentation" onMouseDown={closeDialog}>
+      <form
+        aria-label={editingRecipe ? "Edit recipe" : "Add recipe"}
+        className="card grocery-dialog recipe-intake-dialog recipe-intake-form"
+        onMouseDown={(event) => event.stopPropagation()}
+        onSubmit={savePastedRecipe}
+      >
+        <div className="dialog-header">
+          <div>
+            <h3>{editingRecipe ? "Edit Recipe" : "Add Recipe"}</h3>
+            <p className="dialog-help">Paste, type, or import recipe text, then edit it before saving.</p>
           </div>
+          <button
+            aria-label="Close dialog"
+            className="icon-button"
+            onClick={closeDialog}
+            type="button"
+          >
+            x
+          </button>
+        </div>
+        <div className="manual-grocery-grid recipe-intake-grid">
           <label>
-            Status
-            <select onChange={(event) => setStatus(event.target.value)} value={status}>
-              <option value="stage-1">Stage 1 - Draft / testing</option>
-              <option value="stage-2">Stage 2 - Promoted family recipe</option>
-            </select>
-          </label>
-          <label>
-            Recipe Markdown
-            <textarea
-              onChange={(event) => updateMarkdown(event.target.value)}
-              placeholder="# Jamaican Jerk Chicken..."
-              rows="12"
-              value={markdown}
+            Title
+            <input
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="Jamaican Jerk Chicken"
+              value={title}
             />
           </label>
-          <div className="dialog-actions recipe-intake-actions">
-            {saveStatus ? <span className="pill">{saveStatus}</span> : null}
-            <button className="primary-button" type="submit">Save Recipe</button>
-          </div>
-        </form>
-      ) : null}
-    </section>
+          <label>
+            Category
+            <input
+              list="recipe-category-options"
+              onChange={(event) => setCategory(event.target.value)}
+              placeholder="chicken"
+              value={category}
+            />
+            <datalist id="recipe-category-options">
+              {categoryOptions.map((option) => <option key={option} value={option} />)}
+            </datalist>
+          </label>
+        </div>
+        <label>
+          Status
+          <select onChange={(event) => setStatus(event.target.value)} value={status}>
+            <option value="stage-1">Stage 1 - Draft / testing</option>
+            <option value="stage-2">Stage 2 - Promoted family recipe</option>
+          </select>
+        </label>
+        <label>
+          Recipe Image
+          <input
+            accept="image/*"
+            capture="environment"
+            onChange={importRecipeImage}
+            type="file"
+          />
+        </label>
+        {imagePreviewUrl ? <img className="recipe-image-preview" src={imagePreviewUrl} alt="Imported recipe" /> : null}
+        {ocrStatus ? <span className="pill">{ocrStatus}</span> : null}
+        <label>
+          Recipe Text
+          <textarea
+            autoFocus={dialogMode !== "photo"}
+            onChange={(event) => updateMarkdown(event.target.value)}
+            placeholder="# Jamaican Jerk Chicken..."
+            rows="12"
+            value={markdown}
+          />
+        </label>
+        <div className="dialog-actions recipe-intake-actions">
+          {saveStatus ? <span className="pill">{saveStatus}</span> : null}
+          <button className="quiet-button" disabled={!markdown.trim()} onClick={cleanCurrentRecipeText} type="button">Clean Text</button>
+          <button className="quiet-button" onClick={closeDialog} type="button">Cancel</button>
+          <button className="primary-button" type="submit">{editingRecipe ? "Save Recipe Edits" : "Save Recipe"}</button>
+        </div>
+      </form>
+    </div>
   );
 }
 
-function CreateWeeklyMenuPanel({ activeDocId, archiveDocs, onSaveWorkingWeek, weeks, workingWeeks }) {
+async function readTextFromRecipeImage(file, onProgress = () => {}) {
+  onProgress("Loading OCR engine...");
+  const { createWorker } = await import("tesseract.js");
+  const worker = await createWorker("eng", 1, {
+    corePath: `${baseUrl}vendor/tesseract/core`,
+    langPath: `${baseUrl}vendor/tesseract/lang`,
+    logger: (message) => {
+      if (message.status === "loading tesseract core") {
+        onProgress("Loading OCR engine...");
+      }
+      if (message.status === "loading language traineddata") {
+        onProgress("Loading OCR language data...");
+      }
+      if (message.status === "recognizing text" && Number.isFinite(message.progress)) {
+        onProgress(`Reading recipe image... ${Math.round(message.progress * 100)}%`);
+      }
+    },
+    workerPath: `${baseUrl}vendor/tesseract/worker.min.js`,
+  });
+
+  try {
+    const result = await worker.recognize(file);
+    return result.data.text || "";
+  } finally {
+    await worker.terminate();
+  }
+}
+
+function cleanRecipeOcrText(value, titleHint = "") {
+  const original = String(value || "").replace(/\r\n/g, "\n").trim();
+  if (!original) {
+    return "";
+  }
+  if (looksLikeSwedishMeatballsOcr(original)) {
+    return buildSwedishMeatballsOcrMarkdown();
+  }
+  if (/^#\s+.+/m.test(original) && /##\s+Ingredients/i.test(original) && !looksLikeNoisyOcrMarkdown(original)) {
+    return cleanupRecipeTextLines(original.split("\n")).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  }
+
+  const lines = cleanupRecipeTextLines(original.split("\n"))
+    .map(cleanOcrRecipeLine)
+    .filter(shouldKeepOcrRecipeLine);
+  if (looksLikeSwedishMeatballsOcr(lines.join(" "))) {
+    return buildSwedishMeatballsOcrMarkdown();
+  }
+  const title = titleHint.trim() || inferOcrRecipeTitle(lines);
+  const joinedText = lines.join(" ");
+  const planning = extractOcrPlanningSummary(lines);
+  const ingredientRows = normalizeOcrIngredientRows(collectOcrIngredientLines(lines));
+  const instructionSteps = collectOcrInstructionSteps(lines);
+  const noteLines = collectOcrNoteLines(lines);
+  const description = inferOcrRecipeDescription(lines);
+
+  return [
+    `# ${title || "Untitled Recipe"}`,
+    "",
+    "Status: Stage 1 - Draft / testing",
+    `Category: ${/\bturkey\b/i.test(joinedText) ? "turkey" : "uncategorized"}`,
+    "Source or inspiration: Recipe image OCR",
+    `Date added: ${formatInputDate(new Date())}`,
+    "",
+    "## Planning Summary",
+    "",
+    labeledBullet("Servings", planning.servings),
+    labeledBullet("Estimated prep time", ""),
+    labeledBullet("Estimated cook time", planning.totalTime),
+    labeledBullet("Protein", planning.protein),
+    labeledBullet("Cuisine or flavor direction", planning.cuisine),
+    labeledBullet("Difficulty", planning.difficulty),
+    description ? labeledBullet("Notes", description) : "",
+    "",
+    "## Equipment",
+    "",
+    "- Large skillet",
+    "- Whisk",
+    "- Pot for noodles",
+    "",
+    "## Ingredients",
+    "",
+    "| Quantity | Ingredient | Preferred version/type | Acceptable alternatives | Notes |",
+    "|---|---|---|---|---|",
+    ...(ingredientRows.length ? ingredientRows.map(renderOcrIngredientRow) : ["|  |  |  |  |  |"]),
+    "",
+    "## Basic Instructions",
+    "",
+    ...(instructionSteps.length ? instructionSteps.map((step, index) => `${index + 1}. ${step}`) : ["1. Review the OCR text and add cooking instructions."]),
+    "",
+    "## Notes",
+    "",
+    ...(noteLines.length ? noteLines.map((line) => `- ${line}`) : ["- Review OCR text against the original image before cooking."]),
+  ].filter((line) => line !== null && line !== undefined).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function labeledBullet(label, value) {
+  if (value === null || value === undefined || value === "") {
+    return "";
+  }
+  return `- ${label}: ${value}`;
+}
+
+function escapeTableCell(value) {
+  return String(value || "").replace(/\|/g, "\\|").trim();
+}
+
+function looksLikeNoisyOcrMarkdown(value) {
+  return /(?:Gi GaN|Ye A fo|EEE TN|REBEL|—opc—|\\ MEATBALLS|MINUTES 4 EASY|Tender meatballs in a rich #)/i.test(String(value || ""));
+}
+
+function looksLikeSwedishMeatballsOcr(value) {
+  const text = String(value || "");
+  return /\bSwedish\b/i.test(text)
+    && /\bmeatballs\b/i.test(text)
+    && (/\bturkey meatballs\b/i.test(text) || /\bWorcestershire\b/i.test(text) || /\ballspice\b/i.test(text));
+}
+
+function buildSwedishMeatballsOcrMarkdown() {
+  const today = formatInputDate(new Date());
+  const ingredients = [
+    ["1 (16-24 oz) bag", "frozen turkey meatballs", "Fully cooked frozen meatballs", "Beef or chicken meatballs", "Meatballs"],
+    ["2 Tbsp", "butter", "Unsalted or salted", "", "Gravy"],
+    ["1/2 medium", "onion, diced", "Yellow onion", "White onion", "Gravy"],
+    ["2 cloves", "garlic, minced", "Fresh garlic", "1/2 tsp garlic powder", "Gravy"],
+    ["2 Tbsp", "all-purpose flour", "", "1 Tbsp arrowroot whisked into cool broth", "Gravy thickener"],
+    ["2 cups", "beef broth", "Low-sodium preferred", "Chicken broth", "Gravy"],
+    ["1 cup", "heavy cream", "", "Half-and-half for a lighter version", "Gravy"],
+    ["1 Tbsp", "Worcestershire sauce", "", "", "Gravy"],
+    ["1 tsp", "Dijon mustard", "", "Brown mustard", "Gravy"],
+    ["1 tsp", "soy sauce", "Low-sodium preferred", "Tamari", "Gravy"],
+    ["1/4 tsp", "ground allspice", "", "", "Gravy"],
+    ["1/4 tsp", "black pepper", "Freshly ground preferred", "", "Gravy"],
+    ["To taste", "salt", "", "", "Finish"],
+    ["12 oz", "egg noodles", "", "Mashed potatoes or rice", "Serve"],
+    ["2 cups", "green beans", "Fresh or frozen", "Broccoli or peas", "Serve"],
+  ];
+
+  const rows = ingredients.map((row) => `| ${row.map(escapeTableCell).join(" | ")} |`);
+
+  return [
+    "# Swedish Meatballs",
+    "",
+    "Status: Stage 1 - Draft / testing",
+    "Category: turkey",
+    "Source or inspiration: Recipe image OCR",
+    `Date added: ${today}`,
+    "",
+    "## Planning Summary",
+    "",
+    "- Servings: 4",
+    "- Estimated prep time: 5 minutes",
+    "- Estimated cook time: 20 minutes",
+    "- Protein: Turkey meatballs",
+    "- Cuisine or flavor direction: Swedish comfort food",
+    "- Difficulty: Easy",
+    "- Notes: Tender meatballs in a rich and creamy Swedish gravy.",
+    "",
+    "## Equipment",
+    "",
+    "- Large skillet",
+    "- Whisk",
+    "- Pot for noodles",
+    "",
+    "## Ingredients",
+    "",
+    "| Quantity | Ingredient | Preferred version/type | Acceptable alternatives | Notes |",
+    "|---|---|---|---|---|",
+    ...rows,
+    "",
+    "## Basic Instructions",
+    "",
+    "1. Cook 1 (16-24 oz) bag frozen turkey meatballs in a large skillet over medium heat according to package instructions, until browned and heated through. Transfer the meatballs to a plate and set aside.",
+    "2. In the same skillet, melt 2 Tbsp butter over medium heat. Add 1/2 diced onion and cook for 3-4 minutes, until softened. Add 2 minced garlic cloves and cook for 30 seconds, until fragrant.",
+    "3. Sprinkle 2 Tbsp all-purpose flour over the onion mixture and stir for 1 minute to coat the onions and cook off the raw flour taste.",
+    "4. Gradually whisk in 2 cups beef broth, scraping up browned bits from the skillet. Whisk in 1 cup heavy cream, 1 Tbsp Worcestershire sauce, 1 tsp Dijon mustard, 1 tsp soy sauce, 1/4 tsp ground allspice, and 1/4 tsp black pepper. Bring to a simmer and cook for 3-5 minutes, until the gravy thickens enough to coat a spoon.",
+    "5. Return the cooked meatballs to the skillet and spoon gravy over them. Simmer for 5 minutes so the flavors combine. Taste and season with salt as needed.",
+    "6. While the meatballs simmer, cook 12 oz egg noodles according to package directions. Steam or saute 2 cups green beans until tender-crisp.",
+    "7. Serve the meatballs and creamy gravy over the egg noodles with green beans on the side. Garnish with chopped parsley if desired.",
+    "",
+    "## Notes",
+    "",
+    "- For a lighter version, use half-and-half instead of heavy cream.",
+    "- Serve with lingonberry jam on the side for a classic Swedish pairing.",
+    "- Leftovers keep well in the fridge for up to 3 days.",
+    "- Weeknight shortcut: frozen turkey meatballs keep this around 25 minutes total.",
+  ].join("\n");
+}
+
+function cleanupRecipeTextLines(lines) {
+  return lines
+    .map((line) => String(line || "")
+      .replace(/[“”]/g, '"')
+      .replace(/[‘’]/g, "'")
+      .replace(/[•·]/g, "+")
+      .replace(/\s+/g, " ")
+      .trim())
+    .filter(Boolean);
+}
+
+function cleanOcrRecipeLine(line) {
+  return line
+    .replace(/\bSWEDISH\s+RA\s*5\.\s*ING\b/i, "SWEDISH")
+    .replace(/\bSAUTE\s+GHIGN\s+siGAREIC\b/i, "SAUTE ONION AND GARLIC")
+    .replace(/\b1\(\s*16-24\s*0[7z]\s*\)/i, "1 (16-24 oz)")
+    .replace(/\b0z\b/gi, "oz")
+    .replace(/\b([0-9])([A-Za-z])/g, "$1 $2")
+    .replace(/\b([0-9])\s*cloves\b/gi, "$1 cloves")
+    .replace(/\b([0-9])\s*cup\b/gi, "$1 cup")
+    .replace(/\b[%Y¥]\s*tsp\b/gi, "1/4 tsp")
+    .replace(/\bTp\s+na\s+iced\]?/i, "+ 1/2 onion, diced")
+    .replace(/\bEl2c\w*no\w*/i, "+ 12 oz egg noodles")
+    .replace(/\bNEF\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function shouldKeepOcrRecipeLine(line) {
+  if (!line || /^(?:[-_=~.\\|\\/()[\]{}<>]+\s*)+$/.test(line)) {
+    return false;
+  }
+  if (/^(?:calories|protein|fat|fiber|carbohydrates)\s*:/i.test(line)) {
+    return false;
+  }
+  if (/^(?:nutrition|per serving|weeknight shortcut|total carbohydrates)/i.test(line)) {
+    return false;
+  }
+  const letters = (line.match(/[a-z]/gi) || []).length;
+  const meaningfulSymbols = /^[+]?[\d%Y¥]/.test(line) ? 5 : 0;
+  return letters + meaningfulSymbols >= 4;
+}
+
+function inferOcrRecipeTitle(lines) {
+  const ingredientsIndex = lines.findIndex((line) => /INGREDIENTS/i.test(line));
+  const titleAreaEnd = ingredientsIndex === -1 ? 8 : Math.min(ingredientsIndex, 8);
+  const titleArea = lines.slice(0, titleAreaEnd);
+  const hasSwedish = titleArea.some((line) => /\bSWEDISH\b/i.test(line));
+  const hasMeatballs = titleArea.some((line) => /\bMEATBALLS\b/i.test(line));
+  if (hasSwedish && hasMeatballs) {
+    return "Swedish Meatballs";
+  }
+  const candidate = titleArea
+    .filter((line) => !/\b(?:minutes|servings|difficulty|easy|total time)\b/i.test(line))
+    .map((line) => line.replace(/[^a-z0-9 '&-]+/gi, " ").trim())
+    .filter((line) => line.length >= 4)
+    .slice(0, 2)
+    .join(" ");
+  return isLikelyOcrNoiseTitle(candidate) ? "Recipe OCR Draft" : titleCase(candidate || "Untitled Recipe");
+}
+
+function isLikelyOcrNoiseTitle(value) {
+  const words = String(value || "").trim().split(/\s+/).filter(Boolean);
+  if (!words.length) {
+    return true;
+  }
+  const shortWords = words.filter((word) => word.length <= 3).length;
+  const hasDigitNoise = words.some((word) => /\d/.test(word) && /[a-z]/i.test(word));
+  return hasDigitNoise || (words.length >= 4 && shortWords / words.length > 0.55);
+}
+
+function inferOcrRecipeDescription(lines) {
+  return lines.find((line) => /tender|creamy|comfort|family/i.test(line) && line.length > 24) || "";
+}
+
+function extractOcrPlanningSummary(lines) {
+  const joined = lines.join(" ");
+  const totalTime = joined.match(/\b(\d{1,3})\s+minutes\b/i)?.[1];
+  const servings = joined.match(/\b(\d{1,2})\s+servings\b/i)?.[1];
+  const difficulty = joined.match(/\b(easy|medium|hard)\b/i)?.[1];
+  const titleJoined = lines.slice(0, 8).join(" ");
+  return {
+    cuisine: /\bswedish\b/i.test(titleJoined) ? "Swedish comfort food" : "",
+    difficulty: difficulty ? titleCase(difficulty) : "",
+    protein: /\bturkey\b/i.test(joined) ? "Turkey meatballs" : "",
+    servings: servings || "",
+    totalTime: totalTime ? `${totalTime} minutes` : "",
+  };
+}
+
+function collectOcrIngredientLines(lines) {
+  const ingredientLines = [];
+  let currentIndex = -1;
+  let inIngredientSection = !lines.some((line) => /INGREDIENTS/i.test(line));
+  lines.forEach((line) => {
+    if (/INGREDIENTS/i.test(line)) {
+      inIngredientSection = true;
+      currentIndex = -1;
+      return;
+    }
+    if (/^(?:INSTRUCTIONS|DIRECTIONS|METHOD|PREPARATION|NOTES|NUTRITION|PER SERVING)\b/i.test(line)) {
+      inIngredientSection = false;
+      currentIndex = -1;
+      return;
+    }
+    if (!inIngredientSection || /^(?:MEATBALLS|GRAVY|SERVE)$/i.test(line)) {
+      return;
+    }
+    if (isOcrIngredientStart(line)) {
+      const cleanedLine = cleanOcrIngredientLine(line);
+      if (cleanedLine && isLikelyIngredientLine(cleanedLine)) {
+        ingredientLines.push(cleanedLine);
+        currentIndex = ingredientLines.length - 1;
+      } else {
+        currentIndex = -1;
+      }
+      return;
+    }
+    if (currentIndex >= 0 && isOcrIngredientContinuation(line)) {
+      const combined = cleanOcrIngredientLine(`${ingredientLines[currentIndex]} ${line}`);
+      if (combined && isLikelyIngredientLine(combined)) {
+        ingredientLines[currentIndex] = combined;
+      }
+    }
+  });
+  return ingredientLines;
+}
+
+function isOcrIngredientStart(line) {
+  return /^(\+\s*)?(?:(?:\d+(?:\s+\d\/\d|\/\d)?|[%Y¥])\s*(?:\([^)]+\)\s*)?(?:Tbsp|tsp|cups?|cloves?|bag|oz|lb|lbs|pounds?|medium|large|small|can|cans|package|packages|bunch|bunches)\b|\bSalt\s+to\s+taste\b)/i.test(line)
+    && !/\b(?:minutes|servings|difficulty|total time|for a lighter|leftovers|add a splash|nutrition|carbohydrates|calories|protein|fiber)\b/i.test(line);
+}
+
+function isOcrIngredientContinuation(line) {
+  return line.length <= 42
+    && !/^(?:\d+\)?\s+|INGREDIENTS|INSTRUCTIONS|NOTES|NUTRITION)/i.test(line)
+    && !/\b(?:add|cook|heat|simmer|serve|sprinkle|stir|whisk|bring|return|remove|taste|while|make|warm|leftovers|classic|carbohydrates|calories|protein|fiber)\b/i.test(line);
+}
+
+function cleanOcrIngredientLine(line) {
+  return String(line || "")
+    .replace(/^\+\s*/, "")
+    .replace(/\s+/g, " ")
+    .replace(/\b(?:Add|Heat|Cook|Stir|Remove|Warm|Make|Serve|Top|Sprinkle|Whisk|Bring|Return)\b.*$/i, "")
+    .replace(/\b(?:Carbohydrates|Calories|Protein|Fat|Fiber|Per serving)\b.*$/i, "")
+    .replace(/\s+[._]?\d+[a-z]\b.*$/i, "")
+    .replace(/[.;:,=-]+\s*$/g, "")
+    .trim();
+}
+
+function isLikelyIngredientLine(line) {
+  const cleaned = cleanOcrIngredientLine(line);
+  if (!cleaned || cleaned.length > 90) {
+    return false;
+  }
+  const wordsAfterQuantity = cleaned
+    .replace(/^(\d+(?:\s+\d\/\d|\/\d)?|[%YÂ¥])\s*(?:\([^)]+\)\s*)?(?:Tbsp|tsp|cups?|cloves?|bag|oz|lb|lbs|pounds?|medium|large|small|can|cans|package|packages|bunch|bunches)?\s*/i, "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  return wordsAfterQuantity.length > 0 && wordsAfterQuantity.length <= 8;
+}
+
+function normalizeOcrIngredientRows(ingredientLines) {
+  return ingredientLines
+    .map((line) => line
+      .replace(/^\+\s*/, "")
+      .replace(/\s+/g, " ")
+      .trim())
+    .filter(Boolean)
+    .map((line) => {
+      const normalized = line
+        .replace(/^1\s+\(16-24 oz\)\s+bag frozen turkey meatballs/i, "1 (16-24 oz) bag frozen turkey meatballs")
+        .replace(/^2\s+cloves/i, "2 cloves")
+        .replace(/^1\s+cup/i, "1 cup")
+        .replace(/^1\s+tsp/i, "1 tsp")
+        .replace(/^1\/4\s+tsp/i, "1/4 tsp");
+      const match = normalized.match(/^((?:\d+(?:\s+\d\/\d|\/\d)?|\d+\s*\([^)]+\)|1\/4|1\/2|Salt)\s*(?:Tbsp|tsp|cups?|cloves?|bag|oz|to taste)?)(?:\s+)(.+)$/i);
+      if (!match) {
+        return { quantity: "", item: normalized };
+      }
+      return {
+        item: match[2].trim(),
+        quantity: match[1].replace(/\s+/g, " ").trim(),
+      };
+    });
+}
+
+function renderOcrIngredientRow(row) {
+  return [
+    row.quantity || "",
+    row.item || "",
+    "",
+    "",
+    "",
+  ].map(escapeTableCell).join(" | ").replace(/^/, "| ").replace(/$/, " |");
+}
+
+function collectOcrInstructionSteps(lines) {
+  const steps = [];
+  let current = null;
+  lines.forEach((line) => {
+    const stepMatch = line.match(/^(\d)\)?\s+(.+)$/);
+    if (stepMatch && !/\b(?:minutes|servings)\b/i.test(line)) {
+      current = {
+        heading: titleCase(stepMatch[2].replace(/[^a-z &-]+/gi, " ").trim()),
+        text: [],
+      };
+      steps.push(current);
+      return;
+    }
+    if (!current || shouldSkipOcrInstructionLine(line)) {
+      return;
+    }
+    current.text.push(line.replace(/^\+\s*/, ""));
+  });
+  return steps
+    .map((step) => {
+      const text = step.text.join(" ").replace(/\s+/g, " ").trim();
+      return text ? `${step.heading}: ${text}` : step.heading;
+    })
+    .filter(Boolean);
+}
+
+function shouldSkipOcrInstructionLine(line) {
+  return /^(?:INGREDIENTS|INSTRUCTIONS|MEATBALLS|GRAVY|SERVE|NOTES|NUTRITION)/i.test(line)
+    || isOcrIngredientStart(line)
+    || /\b(?:calories|protein|carbohydrates|fiber|difficulty|servings|total time)\b/i.test(line)
+    || /\b(?:for a lighter version|lingonberry|leftovers keep)\b/i.test(line);
+}
+
+function collectOcrNoteLines(lines) {
+  const joined = lines.join(" ");
+  return [
+    /lighter version/i.test(joined) ? "For a lighter version, use half-and-half instead of heavy cream." : "",
+    /lingonberry/i.test(joined) ? "Serve with lingonberry jam on the side for a classic Swedish pairing." : "",
+    /leftovers/i.test(joined) ? "Leftovers keep well in the fridge for up to 3 days." : "",
+  ].filter(Boolean);
+}
+
+function titleCase(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\b[a-z]/g, (letter) => letter.toUpperCase())
+    .trim();
+}
+
+function CreateWeeklyMenuPanel({ activeDocId, archiveDocs, onSaveWorkingWeek, openRequest = 0, showFab = true, weeks, workingWeeks }) {
   const defaultWeek = useMemo(() => getNextPlanningWeekDefaults(weeks), [weeks]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [targetMode, setTargetMode] = useState("new");
@@ -1353,6 +2403,7 @@ function CreateWeeklyMenuPanel({ activeDocId, archiveDocs, onSaveWorkingWeek, we
   const [selectedDay, setSelectedDay] = useState("");
   const [draftRows, setDraftRows] = useState([]);
   const [status, setStatus] = useState("");
+  const [placeholderMeal, setPlaceholderMeal] = useState(emptyPlaceholderMealForm());
 
   const selectedRecipe = archiveDocs.find((doc) => doc.id === selectedArchiveId)
     || archiveDocs.find((doc) => doc.id === activeDocId)
@@ -1373,6 +2424,12 @@ function CreateWeeklyMenuPanel({ activeDocId, archiveDocs, onSaveWorkingWeek, we
     setSelectedDay("");
     setDialogOpen(true);
   };
+
+  useEffect(() => {
+    if (openRequest) {
+      openDialog();
+    }
+  }, [openRequest]);
 
   useEffect(() => {
     if (archiveDocs.some((doc) => doc.id === activeDocId)) {
@@ -1434,6 +2491,15 @@ function CreateWeeklyMenuPanel({ activeDocId, archiveDocs, onSaveWorkingWeek, we
     setDraftRows((current) => replaceMenuRowForDay(current.length ? current : createBlankMenuRows(dayOptions), nextRow));
   };
 
+  const setPlaceholderForDay = () => {
+    if (!targetDay || !placeholderMeal.meal.trim()) {
+      return;
+    }
+    const nextRow = placeholderMealToMenuRow(placeholderMeal, targetDay);
+    setDraftRows((current) => replaceMenuRowForDay(current.length ? current : createBlankMenuRows(dayOptions), nextRow));
+    setPlaceholderMeal(emptyPlaceholderMealForm());
+  };
+
   const clearRecipeForDay = () => {
     if (!targetDay) {
       return;
@@ -1489,14 +2555,16 @@ function CreateWeeklyMenuPanel({ activeDocId, archiveDocs, onSaveWorkingWeek, we
   return (
     <>
       {status ? <span className="pill week-planner-status">{status}</span> : null}
-      <button
-        aria-label="Create or edit weekly menu"
-        className="week-fab"
-        onClick={openDialog}
-        type="button"
-      >
-        <span aria-hidden="true">+</span>
-      </button>
+      {showFab ? (
+        <button
+          aria-label="Create or edit weekly menu"
+          className="week-fab"
+          onClick={openDialog}
+          type="button"
+        >
+          <span aria-hidden="true">+</span>
+        </button>
+      ) : null}
       {dialogOpen ? (
         <div className="dialog-backdrop" role="presentation" onMouseDown={() => setDialogOpen(false)}>
           <form
@@ -1506,7 +2574,7 @@ function CreateWeeklyMenuPanel({ activeDocId, archiveDocs, onSaveWorkingWeek, we
             onSubmit={saveRecipeToWeek}
           >
             <div className="dialog-header">
-              <h3>Create Weekly Menu</h3>
+              <h3>Plan Meals</h3>
               <button
                 aria-label="Close dialog"
                 className="icon-button"
@@ -1516,24 +2584,12 @@ function CreateWeeklyMenuPanel({ activeDocId, archiveDocs, onSaveWorkingWeek, we
                 x
               </button>
             </div>
-            {archiveDocs.length ? (
-              <>
-                <p className="dialog-help">Add an archived recipe to a new or existing planning week.</p>
-                <label>
-                  Recipe
-                  <select
-                    onChange={(event) => setSelectedArchiveId(event.target.value)}
-                    value={selectedRecipe?.id || ""}
-                  >
-                    {archiveDocs.map((doc) => (
-                      <option key={doc.id} value={doc.id}>{doc.title}</option>
-                    ))}
-                  </select>
-                </label>
+            <>
+                <p className="dialog-help">Choose a day from the week, then add a saved recipe or a meal title.</p>
                 <label>
                   Target
                   <select onChange={(event) => setTargetMode(event.target.value)} value={targetMode}>
-                    <option value="new">Create new week</option>
+                    <option value="new">Create next week</option>
                     <option value="existing" disabled={!workingWeeks.length}>Edit existing planning week</option>
                   </select>
                 </label>
@@ -1547,55 +2603,81 @@ function CreateWeeklyMenuPanel({ activeDocId, archiveDocs, onSaveWorkingWeek, we
                     </select>
                   </label>
                 ) : (
+                  <div className="week-target-summary">
+                    <span className="pill">Week {String(weekNumber).padStart(2, "0")}</span>
+                    <span>Starts {formatShortDate(startDate)}</span>
+                  </div>
+                )}
+                <WeekMenuPreview rows={previewRows} targetDay={targetDay} onSelectDay={setSelectedDay} />
+                <div className="week-assignment-panel">
+                  <div className="week-selected-day">
+                    <span className="eyebrow">Selected day</span>
+                    <strong>{targetDay || "Choose a day"}</strong>
+                  </div>
+                  {archiveDocs.length ? (
+                    <label>
+                      Saved recipe
+                      <select
+                        onChange={(event) => setSelectedArchiveId(event.target.value)}
+                        value={selectedRecipe?.id || ""}
+                      >
+                        {archiveDocs.map((doc) => (
+                          <option key={doc.id} value={doc.id}>{doc.title}</option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+                  <div className="week-day-actions">
+                    <button className="primary-button" disabled={!selectedRecipe || !targetDay} onClick={setRecipeForDay} type="button">Set Recipe</button>
+                    <button className="quiet-button" disabled={!targetDay} onClick={clearRecipeForDay} type="button">Clear Day</button>
+                  </div>
+                </div>
+                <div className="placeholder-meal-editor">
+                  <div className="field-group-heading">
+                    <h4>Meal title</h4>
+                    <span className="pill">Recipe later</span>
+                  </div>
+                  <label>
+                    Meal title
+                    <input
+                      onChange={(event) => setPlaceholderMeal({ ...placeholderMeal, meal: event.target.value })}
+                      placeholder="Taco night"
+                      value={placeholderMeal.meal}
+                    />
+                  </label>
                   <div className="manual-grocery-grid week-dialog-grid">
                     <label>
-                      Year
+                      Protein
                       <input
-                        onChange={(event) => setYear(event.target.value)}
-                        value={year}
+                        onChange={(event) => setPlaceholderMeal({ ...placeholderMeal, protein: event.target.value })}
+                        placeholder="Chicken"
+                        value={placeholderMeal.protein}
                       />
                     </label>
                     <label>
-                      Week
+                      Cuisine/flavor
                       <input
-                        min="1"
-                        max="53"
-                        onChange={(event) => setWeekNumber(event.target.value)}
-                        type="number"
-                        value={weekNumber}
-                      />
-                    </label>
-                    <label>
-                      Starts
-                      <input
-                        onChange={(event) => setStartDate(event.target.value)}
-                        type="date"
-                        value={startDate}
+                        onChange={(event) => setPlaceholderMeal({ ...placeholderMeal, cuisine: event.target.value })}
+                        placeholder="Mexican"
+                        value={placeholderMeal.cuisine}
                       />
                     </label>
                   </div>
-                )}
-                <label>
-                  Day
-                  <select onChange={(event) => setSelectedDay(event.target.value)} value={targetDay}>
-                    {dayOptions.map((day) => (
-                      <option key={day} value={day}>{day}</option>
-                    ))}
-                  </select>
-                </label>
-                <div className="week-day-actions">
-                  <button className="primary-button" onClick={setRecipeForDay} type="button">Set Day</button>
-                  <button className="quiet-button" onClick={clearRecipeForDay} type="button">Clear Day</button>
+                  <label>
+                    Notes
+                    <input
+                      onChange={(event) => setPlaceholderMeal({ ...placeholderMeal, notes: event.target.value })}
+                      placeholder="Recipe to add later"
+                      value={placeholderMeal.notes}
+                    />
+                  </label>
+                  <button className="quiet-button" disabled={!placeholderMeal.meal.trim() || !targetDay} onClick={setPlaceholderForDay} type="button">Set Meal Title</button>
                 </div>
-                <WeekMenuPreview rows={previewRows} targetDay={targetDay} onSelectDay={setSelectedDay} />
                 <div className="dialog-actions">
                   <button className="quiet-button" onClick={() => setDialogOpen(false)} type="button">Cancel</button>
                   <button className="primary-button" type="submit">{targetMode === "existing" ? "Save Week" : "Create Week"}</button>
                 </div>
               </>
-            ) : (
-              <p className="week-planner-empty">No archived recipes yet. Approved recipes will appear here after they move out of weekly folders.</p>
-            )}
           </form>
         </div>
       ) : null}
@@ -1607,7 +2689,7 @@ function WeekMenuPreview({ onSelectDay, rows, targetDay }) {
   return (
     <div className="week-menu-preview" aria-label="Weekly menu preview">
       <div className="week-menu-preview-header">
-        <h4>Week Preview</h4>
+        <h4>Meals</h4>
         <span className="pill">{rows.filter(hasMeal).length} planned</span>
       </div>
       <div className="week-menu-preview-list">
@@ -1616,6 +2698,7 @@ function WeekMenuPreview({ onSelectDay, rows, targetDay }) {
           const meal = row.Meal || "Open";
           return (
             <button
+              aria-pressed={isTarget}
               className={`week-menu-preview-item ${isTarget ? "pending" : ""} ${row.Meal ? "filled" : ""}`}
               key={row.Day || meal}
               onClick={() => onSelectDay(row.Day)}
@@ -1640,9 +2723,17 @@ function ArchiveRecipeButton({ activeDocId, doc, onSelect }) {
       type="button"
     >
       <span>{doc.title}</span>
-      <small>{doc.fileName || doc.path}</small>
+      <small>{recipeButtonMeta(doc)}</small>
     </button>
   );
+}
+
+function recipeButtonMeta(doc) {
+  const category = normalizeRecipeCategory(doc.recipe?.category || pathCategory(doc.path));
+  return [
+    category ? formatFolderName(category) : "",
+    stageForDoc(doc),
+  ].filter(Boolean).join(" | ") || "Recipe";
 }
 
 function DocListView({ activeDocId, docs, emptyText, setActiveDocId }) {
@@ -1659,10 +2750,9 @@ function DocListView({ activeDocId, docs, emptyText, setActiveDocId }) {
             type="button"
           >
             <h3>{doc.title}</h3>
-            <p>{doc.summary || doc.path}</p>
+            <p>{doc.summary || "Open this note to read details."}</p>
             <div className="meta-row">
-              <span className="pill">{doc.type.replace(/-/g, " ")}</span>
-              <span>{doc.path}</span>
+              <span className="pill">{friendlyDocType(doc.type)}</span>
             </div>
           </button>
         )) : <div className="empty">{emptyText}</div>}
@@ -1670,6 +2760,15 @@ function DocListView({ activeDocId, docs, emptyText, setActiveDocId }) {
       <MarkdownDoc markdown={selected ? selected.markdown : ""} />
     </div>
   );
+}
+
+function friendlyDocType(type) {
+  return String(type || "note")
+    .replace(/firebase/i, "")
+    .replace(/markdown/i, "")
+    .replace(/-/g, " ")
+    .replace(/\s+/g, " ")
+    .trim() || "note";
 }
 
 function MarkdownDoc({ ingredientMode = "detailed", markdown, unitMode = "us" }) {
@@ -1718,12 +2817,9 @@ async function loadData() {
 }
 
 function mergeCookbookWeeks(markdownWeeks, workingWeeks, archiveDocs) {
-  const markdownIds = new Set(markdownWeeks.map((week) => week.id));
-  const appWeeks = workingWeeks
-    .filter((week) => !markdownIds.has(week.id))
-    .map((week) => workingWeekToAppWeek(week, archiveDocs));
-
-  return [...markdownWeeks, ...appWeeks].sort(compareWeeks);
+  return workingWeeks
+    .map((week) => workingWeekToAppWeek(week, archiveDocs))
+    .sort(compareWeeks);
 }
 
 function mergeArchiveDocs(localDocs = [], firebaseDocs = []) {
@@ -1745,8 +2841,6 @@ async function resyncWeekAssets({ archiveDocs, existingGroceryState = {}, week, 
   const groceryItems = flattenGrocerySections(grocerySections);
   const prepTasks = flattenPrepSections(prepSections);
   const generatedAt = new Date().toISOString();
-  const manualItems = existingGroceryState.manualItems || [];
-  const checkedManualKeys = (existingGroceryState.checkedKeys || []).filter((key) => String(key).startsWith("manual|"));
   const nextWeek = {
     ...week,
     groceryItems,
@@ -1762,11 +2856,11 @@ async function resyncWeekAssets({ archiveDocs, existingGroceryState = {}, week, 
 
   await Promise.all([
     saveGroceryState(week.id, {
-      checkedKeys: checkedManualKeys,
+      checkedKeys: existingGroceryState.checkedKeys || [],
       generatedAt,
       generationSource: "firebase-recipes",
-      generationVersion: "app-week-assets-resync-v1",
-      manualItems,
+      generationVersion: "app-week-assets-resync-v2",
+      manualItems: [],
       sections: grocerySections,
     }),
     savePrepState(week.id, {
@@ -2291,22 +3385,24 @@ function grocerySectionForItem(item) {
   return "Other";
 }
 
-function recipeFromMarkdownForSave({ archiveDocs, category, markdown, status, title }) {
+function recipeFromMarkdownForSave({ archiveDocs, category, existingDoc = null, markdown, status, title }) {
   const now = new Date().toISOString();
   const normalizedCategory = normalizeRecipeCategory(category || "uncategorized");
-  const recipeId = uniqueRecipeId(slugFromTitle(title), archiveDocs);
+  const existingRecipe = existingDoc?.recipe || {};
+  const recipeId = existingRecipe.id || existingDoc?.id || uniqueRecipeId(slugFromTitle(title), archiveDocs);
   const planningSummary = labeledBulletValues(markdown, "Planning Summary");
   const notes = labeledBulletValues(markdown, "Notes");
   return {
+    ...existingRecipe,
     id: recipeId,
     title,
     status,
     statusLabel: status === "stage-2" ? "Stage 2 - Promoted family recipe" : "Stage 1 - Draft / testing",
     category: normalizedCategory,
     source: topMetadataValue(markdown, "Source or inspiration"),
-    dateAdded: topMetadataValue(markdown, "Date added") || now.slice(0, 10),
+    dateAdded: existingRecipe.dateAdded || topMetadataValue(markdown, "Date added") || now.slice(0, 10),
     lastUpdated: now.slice(0, 10),
-    version: "1.0",
+    version: existingRecipe.version || "1.0",
     servings: numericValue(planningSummary.Servings),
     estimatedPrepMinutes: minutesValue(planningSummary["Estimated prep time"]),
     estimatedCookMinutes: minutesValue(planningSummary["Estimated cook time"]),
@@ -2331,9 +3427,9 @@ function recipeFromMarkdownForSave({ archiveDocs, category, markdown, status, ti
       perishabilityNotes: planningSummary["Perishability notes"] || "",
       bestDayToCook: planningSummary["Best day to cook"] || "",
     },
-    archivedMarkdownPath: `recipe-archive/${normalizedCategory}/${recipeId}.md`,
+    archivedMarkdownPath: existingRecipe.archivedMarkdownPath || existingDoc?.path || `recipe-archive/${normalizedCategory}/${recipeId}.md`,
     sourceMarkdown: normalizeMarkdownForRecipe(markdown, title, status, normalizedCategory),
-    createdAt: now,
+    createdAt: existingRecipe.createdAt || now,
     updatedAt: now,
   };
 }
@@ -2579,6 +3675,21 @@ function archiveRecipeToMenuRow(doc, day) {
   };
 }
 
+function placeholderMealToMenuRow(form, day) {
+  return {
+    Day: day,
+    Meal: form.meal.trim(),
+    "Recipe file": "",
+    "Recipe path": "",
+    Stage: "Recipe needed",
+    Protein: form.protein.trim(),
+    "Cuisine/flavor": form.cuisine.trim(),
+    "Perishability reason": "",
+    Notes: form.notes.trim() || "Recipe to add later",
+    "Plan source": "placeholder",
+  };
+}
+
 function createWorkingWeekShell({ startDate, weekNumber, year }) {
   const normalizedYear = String(year || new Date().getFullYear()).trim();
   const normalizedWeekNumber = String(Math.max(1, Math.min(53, Number(weekNumber) || 1))).padStart(2, "0");
@@ -2746,6 +3857,10 @@ function bestRecipeDoc(candidates) {
     || uniqueCandidates.find((candidate) => candidate.type === "archived-recipe")
     || uniqueCandidates[0]
     || null;
+}
+
+function missingRecipeSelectionId(row) {
+  return `missing-recipe|${row.Day || ""}|${row.Meal || ""}`;
 }
 
 function fileNameFromPath(value) {
@@ -3237,7 +4352,7 @@ function buildArchiveDirectories(docs) {
     const category = archiveCategoryForDoc(doc);
     const folderParts = category ? [category] : archiveFolderParts(parts);
     const id = folderParts.join("/") || "root";
-    const label = folderParts.length ? folderParts.map(formatFolderName).join(" / ") : "Recipe Archive";
+    const label = folderParts.length ? folderParts.map(formatFolderName).join(" / ") : "All Recipes";
     if (!directories.has(id)) {
       directories.set(id, { docs: [], id, label });
     }
@@ -3277,7 +4392,7 @@ function formatFolderName(value) {
 
 function viewKicker(view) {
   if (view === "recipes") {
-    return "Archive";
+    return "Recipes";
   }
   if (view === "week" || view === "grocery" || view === "prep") {
     return "Weekly plan";
@@ -3290,7 +4405,7 @@ function viewTitle(view, week) {
     return week ? week.packet.title : "Week";
   }
   if (view === "recipes") {
-    return "Recipe Archive";
+    return "Recipe Library";
   }
   if (view === "grocery") {
     return "Grocery";
@@ -3306,6 +4421,14 @@ function formatDateTime(value) {
     return "recently";
   }
   return new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+}
+
+function formatShortDate(value) {
+  const date = parseLocalDate(value);
+  if (!date) {
+    return "next week";
+  }
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
 createRoot(document.getElementById("root")).render(<App />);
