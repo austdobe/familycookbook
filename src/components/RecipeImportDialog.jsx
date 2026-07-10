@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useId, useMemo, useState } from "react";
 
 const baseUrl = import.meta.env.BASE_URL;
 
@@ -20,6 +20,7 @@ export function RecipeImportDialog({
   const [imagePreviewUrl, setImagePreviewUrl] = useState("");
   const categoryOptions = useMemo(() => recipeCategoryOptions(archiveDocs), [archiveDocs]);
   const dialogOpen = Boolean(dialogMode);
+  const imageInputId = useId();
 
   const resetForm = () => {
     setTitle("");
@@ -170,7 +171,7 @@ export function RecipeImportDialog({
         <div className="dialog-header">
           <div>
             <h3>{editingRecipe ? "Edit Recipe" : "Add Recipe"}</h3>
-            <p className="dialog-help">Paste, type, or import recipe text, then edit it before saving.</p>
+            <p className="dialog-help">Build the recipe from text or a photo, then make any edits before saving.</p>
           </div>
           <button
             aria-label="Close dialog"
@@ -181,59 +182,77 @@ export function RecipeImportDialog({
             x
           </button>
         </div>
-        <div className="manual-grocery-grid recipe-intake-grid">
-          <label>
-            Title
-            <input
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="Jamaican Jerk Chicken"
-              value={title}
+        <div className="recipe-intake-body">
+          <div className="recipe-intake-details">
+            <label className="recipe-title-field">
+              Title
+              <input
+                autoFocus
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="Jamaican Jerk Chicken"
+                value={title}
+              />
+            </label>
+            <label>
+              Category
+              <input
+                list="recipe-category-options"
+                onChange={(event) => setCategory(event.target.value)}
+                placeholder="chicken"
+                value={category}
+              />
+              <datalist id="recipe-category-options">
+                {categoryOptions.map((option) => <option key={option} value={option} />)}
+              </datalist>
+            </label>
+            <label>
+              Status
+              <select onChange={(event) => setStatus(event.target.value)} value={status}>
+                <option value="stage-1">Stage 1 - Draft / testing</option>
+                <option value="stage-2">Stage 2 - Promoted family recipe</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="recipe-source-panel">
+            <div>
+              <h4>Recipe Source</h4>
+              <p>Paste text below or attach a recipe photo.</p>
+            </div>
+            <div className="recipe-source-actions">
+              <label className="quiet-button recipe-file-button" htmlFor={imageInputId}>
+                Choose Photo
+              </label>
+              <input
+                accept="image/*"
+                capture="environment"
+                className="recipe-file-input"
+                id={imageInputId}
+                onChange={importRecipeImage}
+                type="file"
+              />
+              <button className="quiet-button" disabled={!recipeText.trim()} onClick={cleanCurrentRecipeText} type="button">Clean Text</button>
+            </div>
+            {(imagePreviewUrl || ocrStatus) ? (
+              <div className="recipe-source-feedback">
+                {imagePreviewUrl ? <img className="recipe-image-preview" src={imagePreviewUrl} alt="Imported recipe" /> : null}
+                {ocrStatus ? <span className="pill">{ocrStatus}</span> : null}
+              </div>
+            ) : null}
+          </div>
+
+          <label className="recipe-text-field">
+            Recipe Text
+            <textarea
+              onChange={(event) => updateRecipeText(event.target.value)}
+              placeholder="# Jamaican Jerk Chicken..."
+              rows="14"
+              value={recipeText}
             />
-          </label>
-          <label>
-            Category
-            <input
-              list="recipe-category-options"
-              onChange={(event) => setCategory(event.target.value)}
-              placeholder="chicken"
-              value={category}
-            />
-            <datalist id="recipe-category-options">
-              {categoryOptions.map((option) => <option key={option} value={option} />)}
-            </datalist>
           </label>
         </div>
-        <label>
-          Status
-          <select onChange={(event) => setStatus(event.target.value)} value={status}>
-            <option value="stage-1">Stage 1 - Draft / testing</option>
-            <option value="stage-2">Stage 2 - Promoted family recipe</option>
-          </select>
-        </label>
-        <label>
-          Recipe Image
-          <input
-            accept="image/*"
-            capture="environment"
-            onChange={importRecipeImage}
-            type="file"
-          />
-        </label>
-        {imagePreviewUrl ? <img className="recipe-image-preview" src={imagePreviewUrl} alt="Imported recipe" /> : null}
-        {ocrStatus ? <span className="pill">{ocrStatus}</span> : null}
-        <label>
-          Recipe Text
-          <textarea
-            autoFocus={dialogMode !== "photo"}
-            onChange={(event) => updateRecipeText(event.target.value)}
-            placeholder="# Jamaican Jerk Chicken..."
-            rows="12"
-            value={recipeText}
-          />
-        </label>
         <div className="dialog-actions recipe-intake-actions">
           {saveStatus ? <span className="pill">{saveStatus}</span> : null}
-          <button className="quiet-button" disabled={!recipeText.trim()} onClick={cleanCurrentRecipeText} type="button">Clean Text</button>
           <button className="quiet-button" onClick={closeDialog} type="button">Cancel</button>
           <button className="primary-button" type="submit">{editingRecipe ? "Save Recipe Edits" : "Save Recipe"}</button>
         </div>

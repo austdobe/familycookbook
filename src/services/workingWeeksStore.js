@@ -1,4 +1,4 @@
-import { doc, onSnapshot, setDoc } from "firebase/firestore";
+import { deleteDoc, doc, onSnapshot, setDoc } from "firebase/firestore";
 import { getFirebaseClient } from "./firebase.js";
 
 const householdId = import.meta.env.VITE_FIREBASE_HOUSEHOLD_ID || "family";
@@ -103,6 +103,31 @@ export async function upsertWorkingWeek(week) {
     await Promise.all([
       setDoc(stateRef, nextState, { merge: true }),
       weekRef ? setDoc(weekRef, weekDocumentPayload(week), { merge: true }) : Promise.resolve(),
+    ]);
+  } catch {
+    writeLocalState(nextState);
+  }
+  return weeks;
+}
+
+export async function deleteWorkingWeek(weekId) {
+  const current = readLocalState();
+  const weeks = (current.weeks || []).filter((week) => week.id !== weekId);
+  const nextState = { weeks, updatedAt: new Date().toISOString() };
+  const [stateRef, weekRef] = await Promise.all([
+    getStateRef().catch(() => null),
+    getWeekRef(weekId).catch(() => null),
+  ]);
+  if (!stateRef) {
+    writeLocalState(nextState);
+    return weeks;
+  }
+
+  mirrorLocalState(nextState);
+  try {
+    await Promise.all([
+      setDoc(stateRef, nextState, { merge: true }),
+      weekRef ? deleteDoc(weekRef) : Promise.resolve(),
     ]);
   } catch {
     writeLocalState(nextState);

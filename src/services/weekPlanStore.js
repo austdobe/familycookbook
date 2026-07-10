@@ -1,4 +1,4 @@
-import { doc, onSnapshot, setDoc } from "firebase/firestore";
+import { deleteDoc, doc, onSnapshot, setDoc } from "firebase/firestore";
 import { getFirebaseClient } from "./firebase.js";
 
 const householdId = import.meta.env.VITE_FIREBASE_HOUSEHOLD_ID || "family";
@@ -91,5 +91,19 @@ export async function saveWeekPlanState(weekId, nextState) {
     await setDoc(stateRef, state, { merge: true });
   } catch {
     writeLocalState(weekId, state);
+  }
+}
+
+export async function deleteWeekPlanState(weekId) {
+  localStorage.removeItem(storageKey(weekId));
+  window.dispatchEvent(new CustomEvent("family-cookbook-week-plan", { detail: { weekId } }));
+  const stateRef = await getStateRef(weekId).catch(() => null);
+  if (!stateRef) {
+    return;
+  }
+  try {
+    await deleteDoc(stateRef);
+  } catch {
+    // Local state is already removed; ignore remote cleanup failures.
   }
 }
