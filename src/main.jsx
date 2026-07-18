@@ -5612,6 +5612,10 @@ function startOfLocalDay(date) {
 
 function groceryCategoryOptions(grocerySections) {
   const options = grocerySections.map((section) => section.title).filter(Boolean);
+  if (!options.some((option) => normalizeSectionName(option) === "costco")) {
+    const otherIndex = options.findIndex((option) => normalizeSectionName(option) === "other");
+    options.splice(otherIndex === -1 ? options.length : otherIndex, 0, "Costco");
+  }
   if (!options.some((option) => normalizeSectionName(option) === "other")) {
     options.push("Other");
   }
