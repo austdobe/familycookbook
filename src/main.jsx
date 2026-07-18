@@ -891,16 +891,54 @@ function RecipeFeedbackPanel({ recipe }) {
       className="card recipe-feedback"
       onSubmit={async (event) => {
         event.preventDefault();
-        await saveRecipeFeedback(recipe.id, recipe.path, feedback);
+        const pendingIngredientChanges = ingredientChanges.filter((change) => !change.appliedAt);
+        const appliedAt = new Date().toISOString();
+        let nextFeedback = feedback;
+        const recipePatch = {};
+
         if (feedback.cookedAt || feedback.promotedAt) {
-          await saveRecipe(recipeSavePayloadFromDoc(recipe, {
+          Object.assign(recipePatch, {
             cookedCount,
             lastCookedAt: feedback.cookedAt || lastCookedAt,
             promotedAt: feedback.promotedAt || promotedAt,
             promotionNotes: feedback.promotionNotes || "",
-          }));
+          });
         }
-        setStatus("Saved");
+
+        if (pendingIngredientChanges.length) {
+          const nextVersion = nextMajorRecipeVersion(recipeRecord.version || "1.0");
+          const nextIngredients = applyIngredientChangesToIngredients(recipe, pendingIngredientChanges);
+          nextFeedback = {
+            ...feedback,
+            ingredientChanges: ingredientChanges.map((change) => (
+              change.appliedAt
+                ? change
+                : { ...change, appliedAt, appliedRecipeVersion: nextVersion }
+            )),
+          };
+          Object.assign(recipePatch, {
+            ingredients: nextIngredients,
+            lastUpdated: formatInputDate(new Date()),
+            sourceMarkdown: updateRecipeMarkdownIngredients(recipe.markdown, nextIngredients),
+            version: nextVersion,
+            versionHistory: [
+              ...(recipeRecord.versionHistory || []),
+              {
+                date: formatInputDate(new Date()),
+                version: nextVersion,
+                change: `Applied ingredient feedback: ${pendingIngredientChanges.map(formatIngredientChange).join("; ")}.`,
+                result: [feedback.rating, feedback.notes].filter(Boolean).join(" - "),
+              },
+            ],
+          });
+        }
+
+        await saveRecipeFeedback(recipe.id, recipe.path, nextFeedback);
+        setFeedback(nextFeedback);
+        if (Object.keys(recipePatch).length) {
+          await saveRecipe(recipeSavePayloadFromDoc(recipe, recipePatch));
+        }
+        setStatus(pendingIngredientChanges.length ? `Saved as recipe version ${recipePatch.version}` : "Saved");
       }}
     >
       <div>
@@ -1175,6 +1213,155 @@ function formatIngredientChange(change) {
   return `Update ${change.matchIngredient}${replacement ? ` to ${replacement}` : ""}`;
 }
 
+function nextMajorRecipeVersion(version) {
+  const match = String(version || "1.0").match(/^(\d+)(?:\.(\d+))?/);
+  const currentMajor = match ? Number(match[1]) : 1;
+  return `${Math.max(1, currentMajor) + 1}.0`;
+}
+
+function applyIngredientChangesToIngredients(recipeDoc, changes) {
+  const currentIngredients = recipeIngredientsForEditing(recipeDoc);
+  return changes.reduce((ingredients, change) => {
+    if (change.type === "add") {
+      return [...ingredients, ingredientFromChange(change, ingredients.length)];
+    }
+
+    const matchIndex = ingredients.findIndex((ingredient) => sameIngredientName(ingredient.item, change.matchIngredient));
+    if (matchIndex === -1) {
+      return ingredients;
+    }
+
+    if (change.type === "remove") {
+      return ingredients.filter((_, index) => index !== matchIndex);
+    }
+
+    return ingredients.map((ingredient, index) => {
+      if (index !== matchIndex) {
+        return ingredient;
+      }
+      const nextItem = change.ingredient || ingredient.item;
+      return {
+        ...ingredient,
+        acceptableAlternatives: change.alternatives || ingredient.acceptableAlternatives || "",
+        groceryCategory: grocerySectionForItem(nextItem),
+        item: nextItem,
+        notes: change.notes || ingredient.notes || ingredient.usedIn || "",
+        preferredType: change.preferred || ingredient.preferredType || "",
+        quantityText: change.quantity || ingredient.quantityText || "",
+        sourceRow: undefined,
+        usedIn: change.notes || ingredient.usedIn || ingredient.notes || "",
+      };
+    });
+  }, currentIngredients).map((ingredient, index) => ({
+    ...ingredient,
+    id: ingredient.id || `ingredient-${index + 1}`,
+  }));
+}
+
+function recipeIngredientsForEditing(recipeDoc) {
+  const recipe = recipeDoc.recipe || {};
+  const ingredients = recipe.ingredients?.length
+    ? recipe.ingredients
+    : structuredIngredientsFromMarkdown(recipeDoc.markdown || "");
+  return ingredients.map((ingredient, index) => {
+    const item = ingredient.item || ingredient.Ingredient || ingredient.Item || "";
+    const quantityText = ingredient.quantityText || ingredient.Quantity || "";
+    return {
+      id: ingredient.id || `ingredient-${index + 1}`,
+      quantityText,
+      quantityValue: ingredient.quantityValue ?? numericValue(parseQuantityParts(quantityText).quantity),
+      unit: ingredient.unit || parseQuantityParts(quantityText).unit || "",
+      item,
+      preferredType: ingredient.preferredType || ingredient["Preferred version/type"] || ingredient.Preferred || "",
+      acceptableAlternatives: ingredient.acceptableAlternatives || ingredient["Acceptable alternatives"] || ingredient.Alternatives || "",
+      notes: ingredient.notes || ingredient.Notes || ingredient.usedIn || "",
+      groceryCategory: ingredient.groceryCategory || grocerySectionForItem(item),
+      usedIn: ingredient.usedIn || ingredient.notes || ingredient.Notes || "",
+      optional: Boolean(ingredient.optional),
+      perishable: ingredient.perishable ?? isLikelyPerishableItem(item),
+    };
+  }).filter((ingredient) => ingredient.item);
+}
+
+function ingredientFromChange(change, index) {
+  const parsedQuantity = parseQuantityParts(change.quantity || "");
+  return {
+    id: `ingredient-${index + 1}`,
+    quantityText: change.quantity || "",
+    quantityValue: numericValue(parsedQuantity.quantity),
+    unit: parsedQuantity.unit,
+    item: change.ingredient || "",
+    preferredType: change.preferred || "",
+    acceptableAlternatives: change.alternatives || "",
+    notes: change.notes || "Added from family feedback",
+    groceryCategory: grocerySectionForItem(change.ingredient || ""),
+    usedIn: change.notes || "Added from family feedback",
+    optional: false,
+    perishable: isLikelyPerishableItem(change.ingredient || ""),
+  };
+}
+
+function sameIngredientName(first, second) {
+  return normalizeGroceryItemName(first) === normalizeGroceryItemName(second);
+}
+
+function updateRecipeMarkdownIngredients(markdown, ingredients) {
+  const text = String(markdown || "").replace(/\r\n/g, "\n");
+  const lines = text.split("\n");
+  const ingredientsHeading = lines.findIndex((line) => /^##\s+Ingredients\s*$/i.test(line.trim()));
+  const tableLines = ingredientTableLines(ingredients);
+
+  if (ingredientsHeading === -1) {
+    return [text.trim(), "", "## Ingredients", "", ...tableLines].join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  }
+
+  let tableStart = -1;
+  for (let index = ingredientsHeading + 1; index < lines.length - 1; index += 1) {
+    if (/^##\s+/.test(lines[index])) {
+      break;
+    }
+    if (lines[index].includes("|") && isMarkdownTableSeparator(lines[index + 1])) {
+      tableStart = index;
+      break;
+    }
+  }
+
+  if (tableStart === -1) {
+    return [
+      ...lines.slice(0, ingredientsHeading + 1),
+      "",
+      ...tableLines,
+      "",
+      ...lines.slice(ingredientsHeading + 1),
+    ].join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  }
+
+  let tableEnd = tableStart + 2;
+  while (tableEnd < lines.length && lines[tableEnd].includes("|") && lines[tableEnd].trim()) {
+    tableEnd += 1;
+  }
+
+  return [
+    ...lines.slice(0, tableStart),
+    ...tableLines,
+    ...lines.slice(tableEnd),
+  ].join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function ingredientTableLines(ingredients) {
+  return [
+    "| Quantity | Ingredient | Preferred version/type | Acceptable alternatives | Notes |",
+    "|---|---|---|---|---|",
+    ...ingredients.map((ingredient) => [
+      ingredient.quantityText || "",
+      ingredient.item || "",
+      ingredient.preferredType || "",
+      ingredient.acceptableAlternatives || "",
+      ingredient.notes || ingredient.usedIn || "",
+    ].map(escapeTableCell).join(" | ").replace(/^/, "| ").replace(/$/, " |")),
+  ];
+}
+
 function CardEditDialog({ canDeleteCard, onClearCard, onClose, onDeleteCard, onRenameCard, open, row }) {
   const [title, setTitle] = useState("");
   const [error, setError] = useState("");
@@ -1384,7 +1571,6 @@ function RecipePicker({ docs, onChoose, onRecipeDragEnd, onRecipeDragStart }) {
   const [category, setCategory] = useState("all");
   const [quickOnly, setQuickOnly] = useState(false);
   const [draggingRecipeId, setDraggingRecipeId] = useState("");
-  const isSealed = Boolean(weekPlanState.sealed);
   const categories = useMemo(() => {
     const values = docs
       .map((doc) => normalizeRecipeCategory(doc.recipe?.category || pathCategory(doc.path)))
