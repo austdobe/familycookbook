@@ -975,6 +975,71 @@
   margin: 0;
 }
 
+.meal-style-picker {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.meal-style-picker button {
+  background: #f8faf9;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
+  font: inherit;
+  gap: 4px;
+  padding: 12px;
+  text-align: left;
+}
+
+.meal-style-picker button span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.meal-style-picker button.active {
+  background: #eef8f2;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.meal-component-role {
+  display: grid;
+  font-weight: 700;
+  gap: 6px;
+  max-width: 280px;
+}
+
+.meal-component-role select {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  font: inherit;
+  padding: 9px 10px;
+}
+
+.planned-meal-components {
+  background: #f8faf9;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.planned-meal-components h4 {
+  margin: 0;
+}
+
+.planned-meal-components > div {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
 .week-planner-header-actions {
   align-items: center;
   display: flex;
@@ -1454,6 +1519,10 @@
 }
 
 @media (max-width: 760px) {
+  .meal-style-picker {
+    grid-template-columns: 1fr;
+  }
+
   .manual-grocery-form {
     grid-template-columns: 1fr;
   }

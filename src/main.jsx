@@ -483,11 +483,11 @@ function WeekView({
     return nextWeek;
   };
 
-  const assignRecipeToSelectedDay = async (recipeDoc) => {
+  const assignRecipeToSelectedDay = async (recipeDoc, assignment = {}) => {
     if (!selectedRow || !recipeDoc) {
       return;
     }
-    const nextRow = archiveRecipeToMenuRow(recipeDoc, selectedRow.Day);
+    const nextRow = addRecipeToPlannedMeal(selectedRow, recipeDoc, { ...assignment, docs: allRecipeDocs });
     await saveRows(replaceMenuRowForDay(sourceMenuRows, nextRow));
     setActiveDocId(recipeDoc.id);
   };
@@ -511,6 +511,15 @@ function WeekView({
     const nextRow = titleOnlyMealToMenuRow(mealTitle, selectedRow.Day);
     await saveRows(replaceMenuRowForDay(sourceMenuRows, nextRow));
     setActiveDocId(missingRecipeSelectionId(nextRow));
+  };
+
+  const removeMealComponentForSelectedDay = async (componentIndex) => {
+    if (!selectedRow) return;
+    const components = mealComponentsForRow(selectedRow).filter((_, index) => index !== componentIndex);
+    const nextRow = components.length
+      ? menuRowWithComponents(selectedRow, components, allRecipeDocs)
+      : clearMenuRowForDay([selectedRow], selectedRow.Day)[0];
+    await saveRows(replaceMenuRowForDay(sourceMenuRows, nextRow));
   };
 
   const clearCard = async (row) => {
@@ -750,7 +759,7 @@ function WeekView({
 
       {!isSealed && mealEditorOpen ? (
         <WeekMealAssignmentPanel
-          archiveDocs={archiveDocs}
+          archiveDocs={allRecipeDocs}
           onAddRecipe={() => setRecipeDialogMode("add")}
           onAssignRecipe={assignRecipeToSelectedDay}
           canDeleteWeek={canDeleteWeek}
@@ -762,6 +771,7 @@ function WeekView({
             setDraggingDay("");
             setDraggingRecipeId(recipeDoc.id);
           }}
+          onRemoveComponent={removeMealComponentForSelectedDay}
           onSetTitleOnlyMeal={setTitleOnlyMealForSelectedDay}
           selectedRow={selectedRow}
         />
@@ -1473,15 +1483,20 @@ function WeekMealAssignmentPanel({
   onDeleteWeek,
   onRecipeDragEnd,
   onRecipeDragStart,
+  onRemoveComponent,
   onSetTitleOnlyMeal,
   selectedRow,
 }) {
   const [titleOnlyMeal, setTitleOnlyMeal] = useState("");
   const [weekActionsOpen, setWeekActionsOpen] = useState(false);
+  const [mealStyle, setMealStyle] = useState("complete");
+  const [componentRole, setComponentRole] = useState("main");
 
   useEffect(() => {
     setTitleOnlyMeal("");
     setWeekActionsOpen(false);
+    setMealStyle(mealTypeForRow(selectedRow));
+    setComponentRole(mealTypeForRow(selectedRow) === "hybrid" ? "side" : "main");
   }, [selectedRow?.Day]);
 
   if (!selectedRow) {
@@ -1500,6 +1515,54 @@ function WeekMealAssignmentPanel({
           <button aria-label="Close meal editor" className="icon-button" onClick={onClose} type="button">x</button>
         </div>
       </div>
+      <div className="meal-style-picker" aria-label="Meal style">
+        {[
+          ["complete", "Add complete recipe", "One recipe represents the whole meal."],
+          ["composed", "Build from components", "Combine a main, sides, sauces, and extras."],
+          ["hybrid", "Add sides to selected recipe", "Keep the complete recipe and attach optional extras."],
+        ].map(([value, label, help]) => (
+          <button
+            aria-pressed={mealStyle === value}
+            className={mealStyle === value ? "active" : ""}
+            key={value}
+            onClick={() => {
+              setMealStyle(value);
+              setComponentRole(value === "hybrid" ? "side" : "main");
+            }}
+            type="button"
+          >
+            <strong>{label}</strong>
+            <span>{help}</span>
+          </button>
+        ))}
+      </div>
+      {mealStyle !== "complete" ? (
+        <label className="meal-component-role">
+          Add selected recipe as
+          <select onChange={(event) => setComponentRole(event.target.value)} value={componentRole}>
+            <option value="main">Main</option>
+            <option value="side">Side</option>
+            <option value="sauce">Sauce</option>
+            <option value="bread">Bread</option>
+            <option value="dessert">Dessert</option>
+            <option value="drink">Drink</option>
+          </select>
+        </label>
+      ) : null}
+      {mealComponentsForRow(selectedRow).length ? (
+        <div className="planned-meal-components">
+          <h4>Attached recipes</h4>
+          {mealComponentsForRow(selectedRow).map((component, index) => {
+            const doc = archiveDocs.find((candidate) => candidate.id === component.recipeId || candidate.recipe?.id === component.recipeId);
+            return (
+              <div key={`${component.recipeId}-${component.role}-${index}`}>
+                <span><strong>{formatCategoryLabel(component.role)}</strong> · {doc?.title || component.recipeId}</span>
+                <button className="mini-button" onClick={() => onRemoveComponent(index)} type="button">Remove</button>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
       <div className="week-planner-grid">
         <div className="week-planner-choice">
           <div className="field-group-heading">
@@ -1509,7 +1572,7 @@ function WeekMealAssignmentPanel({
           {archiveDocs.length ? (
             <RecipePicker
               docs={archiveDocs}
-              onChoose={onAssignRecipe}
+              onChoose={(doc) => onAssignRecipe(doc, { mealStyle, role: mealStyle === "complete" ? "complete" : componentRole })}
               onRecipeDragEnd={onRecipeDragEnd}
               onRecipeDragStart={onRecipeDragStart}
             />
@@ -3903,7 +3966,7 @@ async function resyncWeekAssets({ archiveDocs, existingGroceryState = {}, week, 
     menuRows,
     prepSections,
     prepTasks,
-    recipePaths: uniqueValues(menuRows.map((row) => row["Recipe path"]).filter(Boolean)),
+    recipePaths: uniqueValues(menuRows.flatMap((row) => recipePathsForMenuRow(row, allRecipeDocs))),
     title: week.title || week.packet?.title || week.label,
     updatedAt: generatedAt,
   };
@@ -3980,7 +4043,7 @@ async function saveWeekMenuRows({ archiveDocs, menuRows, onSaveWorkingWeek, week
     menuRows,
     prepSections,
     prepTasks: flattenPrepSections(prepSections),
-    recipePaths: uniqueValues(menuRows.map((row) => row["Recipe path"]).filter(Boolean)),
+    recipePaths: uniqueValues(menuRows.flatMap((row) => recipePathsForMenuRow(row, allRecipeDocs))),
     title: week.title || week.packet?.title || week.label,
     weeklyMenu: menuRows,
     updatedAt: generatedAt,
@@ -4023,9 +4086,7 @@ function activeMenuRowsForWeek(week, weekPlanState = {}) {
 
 function workingWeekToAppWeek(week, archiveDocs) {
   const menuRows = week.menuRows || [];
-  const recipes = uniqueValues(
-    menuRows.map((row) => findRecipeDocForMenuRow(row, archiveDocs)).filter(Boolean),
-  );
+  const recipes = uniqueValues(menuRows.flatMap((row) => recipeDocsForMenuRow(row, archiveDocs)));
 
   return {
     id: week.id,
@@ -4083,11 +4144,11 @@ function workingWeekMarkdown(week) {
 function buildGrocerySectionsFromMenuRows(menuRows, archiveDocs) {
   const grouped = new Map();
   menuRows.forEach((row) => {
-    const doc = findRecipeDocForMenuRow(row, archiveDocs);
-    if (!doc) {
+    const docs = recipeDocsForMenuRow(row, archiveDocs);
+    if (!docs.length) {
       return;
     }
-    ingredientRowsForDoc(doc).forEach((ingredientRow) => {
+    docs.forEach((doc) => ingredientRowsForDoc(doc).forEach((ingredientRow) => {
       const item = ingredientRow.Ingredient || ingredientRow.Item || "";
       if (!item) {
         return;
@@ -4104,7 +4165,7 @@ function buildGrocerySectionsFromMenuRows(menuRows, archiveDocs) {
         Recipe: doc.title,
         _recipeRefs: [doc.path],
       });
-    });
+    }));
   });
 
   return [...grouped.values()]
@@ -4490,7 +4551,18 @@ function buildPrepSectionsFromMenuRows(menuRows, archiveDocs = []) {
     return [];
   }
 
-  const tasks = rows.flatMap((row) => prepTasksForMenuRow(row, archiveDocs));
+  const tasks = rows.flatMap((row) => {
+    const componentDocs = recipeDocsForMenuRow(row, archiveDocs);
+    if (!componentDocs.length) return prepTasksForMenuRow(row, archiveDocs);
+    return componentDocs.flatMap((doc) => prepTasksForMenuRow({
+      ...row,
+      Meal: doc.title,
+      components: [],
+      "Recipe id": doc.recipe?.id || doc.id,
+      "Recipe file": fileNameFromPath(doc.path),
+      "Recipe path": doc.path,
+    }, [doc]));
+  });
   const sections = [
     "Sunday Prep",
     "Midweek Refresh",
@@ -5190,13 +5262,15 @@ function matchesSearch(text, search) {
 }
 
 function hasMeal(row) {
-  return Boolean([row.Meal, row["Recipe file"], row.Protein, row["Cuisine/flavor"]].join("").trim());
+  return Boolean(mealComponentsForRow(row).length || [row.Meal, row["Recipe file"], row.Protein, row["Cuisine/flavor"]].join("").trim());
 }
 
-function archiveRecipeToMenuRow(doc, day) {
+function archiveRecipeToMenuRow(doc, day, role = "complete") {
   return {
     Day: day,
     Meal: doc.title,
+    mealType: role === "complete" ? "complete_recipe" : "composed",
+    components: [plannedMealComponent(doc, role)],
     "Recipe id": doc.id,
     "Recipe file": fileNameFromPath(doc.path),
     "Recipe path": doc.path,
@@ -5209,10 +5283,84 @@ function archiveRecipeToMenuRow(doc, day) {
   };
 }
 
+function plannedMealComponent(doc, role = "complete") {
+  return {
+    recipeId: doc.recipe?.id || doc.id,
+    role,
+  };
+}
+
+function mealComponentsForRow(row) {
+  if (Array.isArray(row?.components) && row.components.length) {
+    return row.components
+      .filter((component) => component?.recipeId)
+      .map((component) => ({
+        recipeId: component.recipeId,
+        role: component.role || "main",
+        ...(component.servings ? { servings: component.servings } : {}),
+      }));
+  }
+  const legacyRecipeId = row?.["Recipe id"] || row?.recipeId || "";
+  return legacyRecipeId ? [{ recipeId: legacyRecipeId, role: "complete" }] : [];
+}
+
+function mealTypeForRow(row) {
+  const components = mealComponentsForRow(row);
+  if (!components.length) return "complete";
+  if (components.length === 1 && components[0].role === "complete") return "complete";
+  if (components.some((component) => component.role === "complete")) return "hybrid";
+  return "composed";
+}
+
+function addRecipeToPlannedMeal(row, doc, { docs = [], mealStyle = "complete", role = "main" } = {}) {
+  if (mealStyle === "complete") {
+    return { ...row, ...archiveRecipeToMenuRow(doc, row.Day, "complete") };
+  }
+
+  const storedComponents = mealComponentsForRow(row);
+  const legacyDoc = storedComponents.length ? null : findLegacyRecipeDocForMenuRow(row, docs);
+  const existingComponents = storedComponents.length
+    ? storedComponents
+    : (legacyDoc ? [plannedMealComponent(legacyDoc, "complete")] : []);
+  if (mealStyle === "hybrid" && !existingComponents.length) {
+    return {
+      ...row,
+      ...archiveRecipeToMenuRow(doc, row.Day, "complete"),
+      mealType: "hybrid",
+    };
+  }
+  const baseComponents = existingComponents;
+  const nextComponent = plannedMealComponent(doc, role);
+  const components = baseComponents.some((component) => component.recipeId === nextComponent.recipeId && component.role === nextComponent.role)
+    ? baseComponents
+    : [...baseComponents, nextComponent];
+  return menuRowWithComponents(row, components, [...docs, doc]);
+}
+
+function menuRowWithComponents(row, components, docs) {
+  const componentDocs = components
+    .map((component) => docs.find((candidate) => candidate.id === component.recipeId || candidate.recipe?.id === component.recipeId))
+    .filter(Boolean);
+  const primaryDoc = componentDocs[0];
+  if (!primaryDoc) return { ...row, components };
+  const projected = archiveRecipeToMenuRow(primaryDoc, row.Day, components[0].role);
+  return {
+    ...row,
+    ...projected,
+    Meal: componentDocs.map((doc) => doc.title).join(" + "),
+    components,
+    mealType: components.some((component) => component.role === "complete")
+      ? (components.length === 1 ? "complete_recipe" : "hybrid")
+      : "composed",
+  };
+}
+
 function titleOnlyMealToMenuRow(mealTitle, day) {
   return {
     Day: day,
     Meal: mealTitle.trim(),
+    components: [],
+    mealType: "title_only",
     "Recipe file": "",
     "Recipe path": "",
     Stage: "Recipe needed",
@@ -5243,6 +5391,7 @@ function createBlankMenuRows(dayOptions) {
   return dayOptions.map((day) => ({
     Day: day,
     Meal: "",
+    components: [],
     "Recipe file": "",
     Stage: "",
     Protein: "",
@@ -5258,6 +5407,7 @@ function createCustomMenuRow(rows) {
     "Card type": "custom",
     Day: title,
     Meal: "",
+    components: [],
     "Recipe file": "",
     "Recipe path": "",
     Stage: "",
@@ -5393,6 +5543,8 @@ function clearMenuRowForDay(rows, day) {
     return {
       ...row,
       Meal: "",
+      components: [],
+      mealType: "",
       Notes: "",
       "Cuisine/flavor": "",
       "Perishability reason": "",
@@ -5448,6 +5600,34 @@ function moveMenuRowBetweenDays(rows, fromDay, toDay) {
 }
 
 function findRecipeDocForMenuRow(row, docs) {
+  const componentDocs = recipeDocsForMenuRow(row, docs);
+  if (componentDocs.length) {
+    return componentDocs[0];
+  }
+  return findLegacyRecipeDocForMenuRow(row, docs);
+}
+
+function recipeDocsForMenuRow(row, docs) {
+  const components = mealComponentsForRow(row);
+  if (!components.length) {
+    const legacyDoc = findLegacyRecipeDocForMenuRow(row, docs);
+    return legacyDoc ? [legacyDoc] : [];
+  }
+  const rolePriority = { complete: 0, main: 1, side: 2, sauce: 3, bread: 4, dessert: 5, drink: 6 };
+  return components
+    .map((component, index) => ({ component, index }))
+    .sort((first, second) => (rolePriority[first.component.role] ?? 99) - (rolePriority[second.component.role] ?? 99) || first.index - second.index)
+    .map(({ component }) => docs.find((candidate) => candidate.id === component.recipeId || candidate.recipe?.id === component.recipeId))
+    .filter(Boolean);
+}
+
+function recipePathsForMenuRow(row, docs) {
+  const componentPaths = recipeDocsForMenuRow(row, docs).map((doc) => doc.path).filter(Boolean);
+  if (componentPaths.length) return componentPaths;
+  return [row?.["Recipe path"]].filter(Boolean);
+}
+
+function findLegacyRecipeDocForMenuRow(row, docs) {
   const recipeId = row["Recipe id"] || row.recipeId || "";
   const recipePath = row["Recipe path"] || "";
   const recipeFile = row["Recipe file"] || fileNameFromPath(recipePath);
