@@ -3371,7 +3371,7 @@ function cleanRecipeOcrText(value, titleHint = "") {
   if (looksLikeSwedishMeatballsOcr(original)) {
     return buildSwedishMeatballsOcrMarkdown();
   }
-  if (/^#\s+.+/m.test(original) && /##\s+Ingredients/i.test(original) && !looksLikeNoisyOcrMarkdown(original)) {
+  if (/^#\s+.+/m.test(original) && extractIngredientTableRows(original).length && !looksLikeNoisyOcrMarkdown(original)) {
     return cleanupRecipeTextLines(original.split("\n")).join("\n").replace(/\n{3,}/g, "\n\n").trim();
   }
 
@@ -4805,8 +4805,10 @@ function recipeFromMarkdownForSave({ archiveDocs, category, existingDoc = null, 
   const normalizedCategory = normalizeRecipeCategory(category || "uncategorized");
   const existingRecipe = existingDoc?.recipe || {};
   const recipeId = existingRecipe.id || existingDoc?.id || uniqueRecipeId(slugFromTitle(title), archiveDocs);
-  const planningSummary = labeledBulletValues(markdown, "Planning Summary");
-  const notes = labeledBulletValues(markdown, "Notes");
+  const canonicalMarkdown = canonicalRecipeMarkdownForSave(markdown, title, status, normalizedCategory);
+  const ingredients = structuredIngredientsFromMarkdown(canonicalMarkdown);
+  const planningSummary = labeledBulletValues(canonicalMarkdown, "Planning Summary");
+  const notes = labeledBulletValues(canonicalMarkdown, "Notes");
   return {
     ...existingRecipe,
     id: recipeId,
@@ -4826,9 +4828,9 @@ function recipeFromMarkdownForSave({ archiveDocs, category, existingDoc = null, 
     bestDayToCook: planningSummary["Best day to cook"] || "",
     perishabilityNotes: planningSummary["Perishability notes"] || "",
     difficulty: planningSummary.Difficulty || "",
-    equipment: bulletItems(markdown, "Equipment"),
-    ingredients: structuredIngredientsFromMarkdown(markdown),
-    instructionSections: instructionSectionsFromMarkdown(markdown),
+    equipment: bulletItems(canonicalMarkdown, "Equipment"),
+    ingredients,
+    instructionSections: instructionSectionsFromMarkdown(canonicalMarkdown),
     notes: {
       testing: notes["What might need testing"] || "",
       substitutions: notes["Possible substitutions"] || "",
@@ -4843,7 +4845,7 @@ function recipeFromMarkdownForSave({ archiveDocs, category, existingDoc = null, 
       bestDayToCook: planningSummary["Best day to cook"] || "",
     },
     archivedMarkdownPath: existingRecipe.archivedMarkdownPath || existingDoc?.path || `recipe-archive/${normalizedCategory}/${recipeId}.md`,
-    sourceMarkdown: normalizeMarkdownForRecipe(markdown, title, status, normalizedCategory),
+    sourceMarkdown: canonicalMarkdown,
     createdAt: existingRecipe.createdAt || now,
     updatedAt: now,
   };
@@ -4907,8 +4909,124 @@ function normalizeMarkdownForRecipe(markdown, title, status, category) {
   ].join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
+function canonicalRecipeMarkdownForSave(markdown, title, status, category) {
+  const metadataNormalized = normalizeMarkdownForRecipe(markdown, title, status, category);
+  if (extractIngredientTableRows(metadataNormalized).length) {
+    return metadataNormalized;
+  }
+
+  const plainIngredientRows = extractPlainTextIngredientRows(metadataNormalized);
+  const cleaned = plainIngredientRows.length
+    ? buildCanonicalMarkdownFromPlainRecipe(metadataNormalized, title, status, category, plainIngredientRows)
+    : cleanRecipeOcrText(metadataNormalized, title);
+  const canonicalMarkdown = normalizeMarkdownForRecipe(cleaned, title, status, category);
+  if (!extractIngredientTableRows(canonicalMarkdown).length) {
+    throw new Error("No ingredients could be recognized. Add an Ingredients section with one ingredient per line, or use the ingredient table format.");
+  }
+  return canonicalMarkdown;
+}
+
+function buildCanonicalMarkdownFromPlainRecipe(markdown, title, status, category, ingredientRows) {
+  const equipment = plainTextSectionLines(markdown, "equipment", "ingredients");
+  const instructionSteps = plainTextInstructionSteps(markdown);
+  const source = topMetadataValue(markdown, "Source or inspiration");
+  const dateAdded = topMetadataValue(markdown, "Date added");
+  const planningRows = [
+    labeledBullet("Servings", plainRecipeMetadataValue(markdown, "Servings")),
+    labeledBullet("Estimated prep time", plainRecipeMetadataValue(markdown, "Prep Time")),
+    labeledBullet("Estimated cook time", plainRecipeMetadataValue(markdown, "Cook Time")),
+    labeledBullet("Total time", plainRecipeMetadataValue(markdown, "Total Time")),
+  ].filter(Boolean);
+  const tableRows = ingredientRows.map((row) => ({
+    quantityText: row.Quantity || "",
+    item: row.Ingredient || row.Item || "",
+    preferredType: row["Preferred version/type"] || "",
+    acceptableAlternatives: row["Acceptable alternatives"] || "",
+    notes: row.Notes || "",
+  }));
+
+  return [
+    `# ${title}`,
+    "",
+    `Status: ${status === "stage-2" ? "Stage 2 - Promoted family recipe" : "Stage 1 - Draft / testing"}`,
+    `Category: ${formatCategoryLabel(category)}`,
+    source ? `Source or inspiration: ${source}` : "",
+    dateAdded ? `Date added: ${dateAdded}` : "",
+    "",
+    "## Planning Summary",
+    "",
+    ...(planningRows.length ? planningRows : ["- Servings: Review and add"]),
+    "",
+    "## Equipment",
+    "",
+    ...(equipment.length ? equipment.map((item) => `- ${item}`) : ["- Review and add equipment"]),
+    "",
+    "## Ingredients",
+    "",
+    ...ingredientTableLines(tableRows),
+    "",
+    "## Basic Instructions",
+    "",
+    ...(instructionSteps.length
+      ? instructionSteps.map((step, index) => `${index + 1}. ${step}`)
+      : ["1. Review the source recipe and add instructions."]),
+    "",
+    "## Notes",
+    "",
+    "- Converted automatically from pasted recipe text. Review formatting before promoting.",
+  ].filter((line) => line !== "").join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function plainRecipeMetadataValue(markdown, label) {
+  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return String(markdown || "").match(new RegExp(`^${escapedLabel}:\\s*(.+)$`, "im"))?.[1]?.trim() || "";
+}
+
+function plainTextSectionLines(markdown, startHeading, endHeading) {
+  const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
+  const startPattern = new RegExp(`^#{0,6}\\s*${startHeading}\\s*:?\\s*$`, "i");
+  const endPattern = new RegExp(`^#{0,6}\\s*${endHeading}\\s*:?\\s*$`, "i");
+  const start = lines.findIndex((line) => startPattern.test(line.trim()));
+  if (start === -1) {
+    return [];
+  }
+  const result = [];
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const line = lines[index].replace(/^\s*[-*+]\s+/, "").trim();
+    if (endPattern.test(line)) {
+      break;
+    }
+    if (line) {
+      result.push(line);
+    }
+  }
+  return result;
+}
+
+function plainTextInstructionSteps(markdown) {
+  const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
+  const start = lines.findIndex((line) => /^(?:#{0,6}\s*)?(?:directions?|instructions?|method|preparation|steps)\s*:?\s*$/i.test(line.trim()));
+  if (start === -1) {
+    return [];
+  }
+  const steps = [];
+  let current = null;
+  lines.slice(start + 1).forEach((rawLine) => {
+    const line = rawLine.trim();
+    if (!line) return;
+    const match = line.match(/^\d+\.\s+(.+)$/);
+    if (match) {
+      current = [match[1]];
+      steps.push(current);
+    } else if (current) {
+      current.push(line);
+    }
+  });
+  return steps.map((parts) => parts.join(": "));
+}
+
 function structuredIngredientsFromMarkdown(markdown) {
-  return extractIngredientTableRows(markdown).map((row, index) => {
+  return extractIngredientSourceRows(markdown).map((row, index) => {
     const quantityText = row.Quantity || "";
     const parsedQuantity = parseQuantityParts(quantityText);
     const item = row.Ingredient || row.Item || "";
@@ -5423,7 +5541,7 @@ function normalizeHeader(header) {
 
 function extractIngredientRows(markdown) {
   const seenIngredients = new Set();
-  return extractIngredientTableRows(markdown)
+  return extractIngredientSourceRows(markdown)
     .map((row) => ({
       ingredient: row.Ingredient || row.Item || "",
     }))
@@ -5447,7 +5565,7 @@ function ingredientRowsForDoc(doc) {
       Notes: ingredient.notes || ingredient.usedIn || ingredient.Notes || "",
     }));
   }
-  return extractIngredientTableRows(doc?.markdown || "");
+  return extractIngredientSourceRows(doc?.markdown || "");
 }
 
 function stageForDoc(doc) {
@@ -5462,7 +5580,7 @@ function stageForDoc(doc) {
 
 function extractIngredientTableRows(markdown) {
   const lines = (markdown || "").replace(/\r\n/g, "\n").split("\n");
-  const ingredientsHeading = lines.findIndex((line) => /^##\s+Ingredients\s*$/.test(line.trim()));
+  const ingredientsHeading = lines.findIndex((line) => /^##\s+Ingredients\s*$/i.test(line.trim()));
   if (ingredientsHeading === -1) {
     return [];
   }
@@ -5492,6 +5610,84 @@ function extractIngredientTableRows(markdown) {
   }
 
   return [];
+}
+
+function extractIngredientSourceRows(markdown) {
+  const tableRows = extractIngredientTableRows(markdown);
+  return tableRows.length ? tableRows : extractPlainTextIngredientRows(markdown);
+}
+
+function extractPlainTextIngredientRows(markdown) {
+  const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
+  const start = lines.findIndex((line) => /^#{0,6}\s*ingredients\s*:?\s*$/i.test(line.trim()));
+  if (start === -1) {
+    return [];
+  }
+
+  const endHeading = /^(?:#{0,6}\s*)?(?:directions?|instructions?|method|preparation|steps)\s*:?\s*$/i;
+  const groupHeading = /^(?:chicken|meat|protein|produce|vegetables?|dry rub|rub|seasoning|spice blend|marinade|sauce|glaze|dressing|garnish(?:\s*\(optional\))?|for serving|to serve|assembly)\s*:?$/i;
+  const rows = [];
+
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const line = lines[index]
+      .replace(/^\s*[-*+]\s+/, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!line) {
+      continue;
+    }
+    if (endHeading.test(line)) {
+      break;
+    }
+    const nextLine = lines.slice(index + 1).map((candidate) => candidate.trim()).find(Boolean) || "";
+    const looksLikeNamedGroup = !startsWithPlainIngredientQuantity(line)
+      && startsWithPlainIngredientQuantity(nextLine)
+      && line.split(/\s+/).length <= 8;
+    if (groupHeading.test(line) || looksLikeNamedGroup) {
+      continue;
+    }
+    if (/^(?:prep|cook|total)\s+time|^servings?|^equipment$/i.test(line)) {
+      continue;
+    }
+
+    const parsed = splitPlainTextIngredient(line);
+    if (parsed.Ingredient) {
+      rows.push(parsed);
+    }
+  }
+
+  return rows;
+}
+
+function startsWithPlainIngredientQuantity(line) {
+  return /^((?:\d+\s+)?[¼½¾⅓⅔⅛⅜⅝⅞](?:\s*[–-]\s*(?:\d+\s+)?[¼½¾⅓⅔⅛⅜⅝⅞])?|\d+(?:\.\d+|\/\d+)?(?:\s*[–-]\s*\d+(?:\.\d+|\/\d+)?)?|(?:pinch|dash|handful|to taste|as needed))\s+/i.test(line);
+}
+
+function splitPlainTextIngredient(line) {
+  const quantityMatch = line.match(/^((?:\d+\s+)?[¼½¾⅓⅔⅛⅜⅝⅞](?:\s*[–-]\s*(?:\d+\s+)?[¼½¾⅓⅔⅛⅜⅝⅞])?|\d+(?:\.\d+|\/\d+)?(?:\s*[–-]\s*\d+(?:\.\d+|\/\d+)?)?|(?:pinch|dash|handful|to taste|as needed))\s+(.+)$/i);
+  if (!quantityMatch) {
+    return {
+      Quantity: "",
+      Ingredient: line,
+      "Preferred version/type": "",
+      "Acceptable alternatives": "",
+      Notes: "",
+    };
+  }
+
+  const unitMatch = quantityMatch[2].match(/^((?:cups?|tbsp|tablespoons?|tsp|teaspoons?|lb|lbs|pounds?|oz|ounces?|cloves?|cans?|packages?|packets?|bunches?|sticks?))\s+(.+)$/i);
+  if (unitMatch) {
+    quantityMatch[1] = `${quantityMatch[1]} ${unitMatch[1]}`;
+    quantityMatch[2] = unitMatch[2];
+  }
+
+  return {
+    Quantity: quantityMatch[1],
+    Ingredient: quantityMatch[2],
+    "Preferred version/type": "",
+    "Acceptable alternatives": "",
+    Notes: "",
+  };
 }
 
 function isMarkdownTableSeparator(line) {

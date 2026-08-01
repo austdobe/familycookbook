@@ -324,6 +324,128 @@
   min-width: 0;
 }
 
+.recipe-editor-tabs {
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 4px;
+}
+
+.recipe-editor-tabs button {
+  background: transparent;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  padding: 10px 14px;
+}
+
+.recipe-editor-tabs button.active {
+  border-bottom-color: var(--accent);
+  color: var(--ink);
+}
+
+.recipe-builder,
+.recipe-markdown-editor {
+  display: grid;
+  gap: 14px;
+}
+
+.recipe-builder-section {
+  background: #f8faf9;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.recipe-builder-section h4 {
+  margin: 0;
+}
+
+.recipe-builder-section-heading {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.recipe-builder-planning-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+}
+
+.recipe-builder-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.recipe-builder-ingredient-row {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 110px minmax(180px, 1.4fr) minmax(150px, 1fr) minmax(150px, 1fr) minmax(150px, 1fr) auto;
+}
+
+.recipe-builder-direction-row {
+  align-items: start;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+}
+
+.recipe-builder-direction-row > span {
+  font-weight: 800;
+  padding-top: 10px;
+  text-align: center;
+}
+
+.recipe-intake-form .recipe-builder textarea {
+  min-height: 88px;
+}
+
+.recipe-intake-form .recipe-builder-direction-row textarea {
+  min-height: 74px;
+}
+
+.recipe-builder-add {
+  justify-self: start;
+}
+
+@media (max-width: 1100px) {
+  .recipe-builder-planning-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .recipe-builder-ingredient-row {
+    grid-template-columns: 100px minmax(180px, 1fr) minmax(150px, 1fr) auto;
+  }
+
+  .recipe-builder-ingredient-row label:nth-of-type(4),
+  .recipe-builder-ingredient-row label:nth-of-type(5) {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 700px) {
+  .recipe-builder-planning-grid,
+  .recipe-builder-ingredient-row {
+    grid-template-columns: 1fr;
+  }
+
+  .recipe-builder-ingredient-row label:nth-of-type(4),
+  .recipe-builder-ingredient-row label:nth-of-type(5) {
+    grid-column: auto;
+  }
+
+  .recipe-builder-ingredient-row button {
+    justify-self: start;
+  }
+}
+
 .recipe-intake-grid {
   grid-template-columns: minmax(0, 1.4fr) minmax(180px, 0.6fr);
 }
