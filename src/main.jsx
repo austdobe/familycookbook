@@ -4023,9 +4023,9 @@ function activeMenuRowsForWeek(week, weekPlanState = {}) {
 
 function workingWeekToAppWeek(week, archiveDocs) {
   const menuRows = week.menuRows || [];
-  const recipes = uniqueValues(menuRows.map((row) => row["Recipe path"]).filter(Boolean))
-    .map((path) => archiveDocs.find((doc) => doc.path === path))
-    .filter(Boolean);
+  const recipes = uniqueValues(
+    menuRows.map((row) => findRecipeDocForMenuRow(row, archiveDocs)).filter(Boolean),
+  );
 
   return {
     id: week.id,
@@ -5079,6 +5079,7 @@ function archiveRecipeToMenuRow(doc, day) {
   return {
     Day: day,
     Meal: doc.title,
+    "Recipe id": doc.id,
     "Recipe file": fileNameFromPath(doc.path),
     "Recipe path": doc.path,
     Stage: stageForDoc(doc) || "Stage 2",
@@ -5329,15 +5330,24 @@ function moveMenuRowBetweenDays(rows, fromDay, toDay) {
 }
 
 function findRecipeDocForMenuRow(row, docs) {
+  const recipeId = row["Recipe id"] || row.recipeId || "";
   const recipePath = row["Recipe path"] || "";
   const recipeFile = row["Recipe file"] || fileNameFromPath(recipePath);
   const candidates = [];
+  if (recipeId) {
+    candidates.push(...docs.filter((candidate) => candidate.id === recipeId || candidate.recipe?.id === recipeId));
+  }
   if (recipePath) {
     candidates.push(...docs.filter((candidate) => candidate.path === recipePath));
   }
 
   if (recipeFile) {
     candidates.push(...docs.filter((candidate) => candidate.path.endsWith(`/${recipeFile}`)));
+  }
+
+  if (!candidates.length && row["Plan source"] !== "needs-recipe") {
+    const mealTitle = String(row.Meal || "").trim().toLowerCase();
+    candidates.push(...docs.filter((candidate) => String(candidate.title || "").trim().toLowerCase() === mealTitle));
   }
 
   return bestRecipeDoc(candidates);
@@ -5430,11 +5440,11 @@ function extractIngredientRows(markdown) {
 function ingredientRowsForDoc(doc) {
   if (doc?.recipe?.ingredients?.length) {
     return doc.recipe.ingredients.map((ingredient) => ({
-      Quantity: ingredient.quantityText || "",
-      Ingredient: ingredient.item || "",
-      "Preferred version/type": ingredient.preferredType || "",
-      "Acceptable alternatives": ingredient.acceptableAlternatives || "",
-      Notes: ingredient.notes || ingredient.usedIn || "",
+      Quantity: ingredient.quantityText || ingredient.Quantity || "",
+      Ingredient: ingredient.item || ingredient.Ingredient || ingredient.Item || "",
+      "Preferred version/type": ingredient.preferredType || ingredient["Preferred version/type"] || ingredient.Preferred || "",
+      "Acceptable alternatives": ingredient.acceptableAlternatives || ingredient["Acceptable alternatives"] || ingredient.Alternatives || "",
+      Notes: ingredient.notes || ingredient.usedIn || ingredient.Notes || "",
     }));
   }
   return extractIngredientTableRows(doc?.markdown || "");
