@@ -57,8 +57,7 @@ textarea {
 }
 
 .app-shell {
-  display: grid;
-  grid-template-columns: 290px minmax(0, 1fr);
+  display: block;
   max-width: 100%;
   min-height: 100vh;
   min-width: 0;
@@ -79,8 +78,10 @@ textarea {
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 22px;
-  position: sticky;
+  position: fixed;
+  left: 0;
   top: 0;
+  width: 290px;
   z-index: 10;
   max-width: 100%;
   min-width: 0;
@@ -167,6 +168,7 @@ textarea {
 }
 
 .main-content {
+  margin-left: 290px;
   max-width: 100%;
   min-width: 0;
   overflow-x: hidden;
@@ -664,7 +666,7 @@ td {
 
 @media (max-width: 1439px) {
   .app-shell {
-    grid-template-columns: 1fr;
+    display: block;
   }
 
   .sidebar {
@@ -679,6 +681,8 @@ td {
     overflow-y: visible;
     padding: 14px;
     position: sticky;
+    left: auto;
+    width: auto;
   }
 
   .brand,
@@ -707,6 +711,7 @@ td {
   }
 
   .main-content {
+    margin-left: 0;
     padding: 18px;
   }
 }

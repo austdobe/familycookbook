@@ -4043,8 +4043,12 @@ function workingWeekToAppWeek(week, archiveDocs) {
     },
     recipes,
     weeklyMenu: menuRows,
-    grocerySections: week.grocerySections || buildGrocerySectionsFromMenuRows(menuRows, archiveDocs),
-    prepSections: week.prepSections || buildPrepSectionsFromMenuRows(menuRows, archiveDocs),
+    grocerySections: week.grocerySections?.length
+      ? week.grocerySections
+      : buildGrocerySectionsFromMenuRows(menuRows, archiveDocs),
+    prepSections: week.prepSections?.length
+      ? week.prepSections
+      : buildPrepSectionsFromMenuRows(menuRows, archiveDocs),
   };
 }
 
@@ -4103,19 +4107,9 @@ function buildGrocerySectionsFromMenuRows(menuRows, archiveDocs) {
     });
   });
 
-  const sectionOrder = [
-    "Produce",
-    "Meat and Seafood",
-    "Dairy and Eggs",
-    "Bakery",
-    "Pantry and Dry Goods",
-    "Sauces, Condiments, and Spices",
-    "Other",
-  ];
-
   return [...grouped.values()]
     .map((section) => ({ ...section, items: sortGroceryItems(mergeGroceryItems(section.items)) }))
-    .sort((first, second) => sectionOrder.indexOf(first.title) - sectionOrder.indexOf(second.title));
+    .sort((first, second) => grocerySectionSortIndex(first.title) - grocerySectionSortIndex(second.title));
 }
 
 function mergeGroceryItems(items) {
@@ -5610,16 +5604,31 @@ function startOfLocalDay(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
+const GROCERY_CATEGORY_OPTIONS = [
+  "Produce",
+  "Meat and Seafood",
+  "Dairy and Eggs",
+  "Bakery",
+  "Pantry and Dry Goods",
+  "Sauces, Condiments, and Spices",
+  "Frozen",
+  "Costco",
+  "Other",
+];
+
 function groceryCategoryOptions(grocerySections) {
-  const options = grocerySections.map((section) => section.title).filter(Boolean);
-  if (!options.some((option) => normalizeSectionName(option) === "costco")) {
-    const otherIndex = options.findIndex((option) => normalizeSectionName(option) === "other");
-    options.splice(otherIndex === -1 ? options.length : otherIndex, 0, "Costco");
-  }
-  if (!options.some((option) => normalizeSectionName(option) === "other")) {
-    options.push("Other");
-  }
-  return options;
+  return uniqueValues([
+    ...GROCERY_CATEGORY_OPTIONS,
+    ...grocerySections.map((section) => section.title).filter(Boolean),
+  ]);
+}
+
+function grocerySectionSortIndex(title) {
+  const normalizedTitle = normalizeSectionName(title);
+  const index = GROCERY_CATEGORY_OPTIONS.findIndex(
+    (option) => normalizeSectionName(option) === normalizedTitle,
+  );
+  return index === -1 ? GROCERY_CATEGORY_OPTIONS.length : index;
 }
 
 function mergeManualItemsIntoSections(recipeSections, manualItems, categoryOptions) {
