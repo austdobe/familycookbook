@@ -385,6 +385,7 @@ function WeekView({
   const [weekPlanState, setWeekPlanState] = useState({ menuRows: [] });
   const [recipeDialogMode, setRecipeDialogMode] = useState("");
   const [selectedDay, setSelectedDay] = useState("");
+  const [selectedRecipeIndex, setSelectedRecipeIndex] = useState(0);
   const [weekCreatorOpen, setWeekCreatorOpen] = useState(false);
   const [weekActionMenuOpen, setWeekActionMenuOpen] = useState(false);
   const [mealEditorOpen, setMealEditorOpen] = useState(false);
@@ -432,7 +433,13 @@ function WeekView({
     ? null
     : allRecipeDocs.find((doc) => doc.id === activeDocId) || getDefaultRecipeForWeek(week, plannedMenuRows, allRecipeDocs) || allRecipeDocs[0] || null;
   const selectedRowDoc = selectedRow ? findRecipeDocForMenuRow(selectedRow, allRecipeDocs) : null;
-  const readerDoc = selectedRow ? selectedRowDoc : selectedDoc;
+  const selectedRowDocs = selectedRow ? recipeDocsForMenuRow(selectedRow, allRecipeDocs) : [];
+  const currentSelectedRecipeIndex = selectedRowDocs.length
+    ? Math.min(selectedRecipeIndex, selectedRowDocs.length - 1)
+    : 0;
+  const readerDoc = selectedRow
+    ? selectedRowDocs[currentSelectedRecipeIndex] || selectedRowDoc
+    : selectedDoc;
   const cardEditorRow = sourceMenuRows.find((row) => row.Day === cardEditorDay) || null;
   const canDeleteWeek = plannedMenuRows.length === 0 && workingWeeks.some((candidate) => candidate.id === week.id);
   const sealWeek = async () => {
@@ -489,6 +496,8 @@ function WeekView({
     }
     const nextRow = addRecipeToPlannedMeal(selectedRow, recipeDoc, { ...assignment, docs: allRecipeDocs });
     await saveRows(replaceMenuRowForDay(sourceMenuRows, nextRow));
+    const nextDocs = recipeDocsForMenuRow(nextRow, allRecipeDocs);
+    setSelectedRecipeIndex(Math.max(0, nextDocs.findIndex((doc) => doc.id === recipeDoc.id)));
     setActiveDocId(recipeDoc.id);
   };
   const assignRecipeToDay = async (recipeId, day) => {
@@ -520,6 +529,7 @@ function WeekView({
       ? menuRowWithComponents(selectedRow, components, allRecipeDocs)
       : clearMenuRowForDay([selectedRow], selectedRow.Day)[0];
     await saveRows(replaceMenuRowForDay(sourceMenuRows, nextRow));
+    setSelectedRecipeIndex((current) => Math.max(0, Math.min(current, components.length - 1)));
   };
 
   const clearCard = async (row) => {
@@ -744,8 +754,9 @@ function WeekView({
               onDropMeal={isSealed ? requestUnsealWeek : moveMealToDay}
               onDropRecipe={isSealed ? requestUnsealWeek : assignRecipeToDay}
               onEditCard={(nextRow) => !isSealed && setCardEditorDay(nextRow.Day)}
-              onSelect={(nextId, nextRow) => {
+              onSelect={(nextId, nextRow, nextRecipeIndex = 0) => {
                 setSelectedDay(nextRow.Day);
+                setSelectedRecipeIndex(nextRecipeIndex);
                 setActiveDocId(nextId);
                 if (mealEditorOpen) {
                   setMealEditorOpen(true);
@@ -779,7 +790,30 @@ function WeekView({
 
       <section>
         <div className="section-title">
-          <h3>Selected Recipe</h3>
+          <div className="selected-recipe-heading">
+            <h3>Selected Recipe</h3>
+            {selectedRowDocs.length > 1 ? (
+              <div className="selected-recipe-navigation" aria-label="Attached recipe navigation">
+                <button
+                  aria-label="Previous attached recipe"
+                  className="icon-button"
+                  onClick={() => setSelectedRecipeIndex((current) => (current - 1 + selectedRowDocs.length) % selectedRowDocs.length)}
+                  type="button"
+                >
+                  ←
+                </button>
+                <span>{currentSelectedRecipeIndex + 1} of {selectedRowDocs.length} · {readerDoc?.title}</span>
+                <button
+                  aria-label="Next attached recipe"
+                  className="icon-button"
+                  onClick={() => setSelectedRecipeIndex((current) => (current + 1) % selectedRowDocs.length)}
+                  type="button"
+                >
+                  →
+                </button>
+              </div>
+            ) : readerDoc ? <span className="selected-recipe-name">{readerDoc.title}</span> : null}
+          </div>
           <div className="section-actions">
             <IngredientDetailToggle mode={ingredientMode} setMode={setIngredientMode} />
             <QuantityUnitToggle mode={unitMode} setMode={setUnitMode} />
@@ -2085,7 +2119,9 @@ function DayCard({
   selectedDay,
   selectedDoc,
 }) {
+  const [recipesExpanded, setRecipesExpanded] = useState(false);
   const doc = findRecipeDocForMenuRow(row, docs);
+  const componentDocs = recipeDocsForMenuRow(row, docs);
   const missingSelectionId = missingRecipeSelectionId(row);
   const canDrag = !isSealed && hasMeal(row);
   const isDragging = draggingDay === row.Day;
@@ -2094,7 +2130,7 @@ function DayCard({
   const isActive = row.Day === selectedDay
     || (selectedDoc && doc && selectedDoc.id === doc.id)
     || (!doc && activeDocId === missingSelectionId);
-  const selectCard = () => onSelect(doc ? doc.id : missingSelectionId, row);
+  const selectCard = () => onSelect(doc ? doc.id : missingSelectionId, row, 0);
 
   return (
     <div
@@ -2164,6 +2200,38 @@ function DayCard({
         <span className="drag-hint">{isSealed ? "Sealed" : isRecipeDropTarget ? "Drop recipe" : canDrag ? "Drag" : "Drop here"}</span>
       </div>
       <h3>{row.Meal || "Open"}</h3>
+      {componentDocs.length > 1 ? (
+        <div className="day-card-recipes">
+          <button
+            aria-expanded={recipesExpanded}
+            className="day-card-recipes-toggle"
+            onClick={(event) => {
+              event.stopPropagation();
+              setRecipesExpanded((current) => !current);
+            }}
+            type="button"
+          >
+            {recipesExpanded ? "Hide recipes" : `Show all ${componentDocs.length} recipes`}
+          </button>
+          {recipesExpanded ? (
+            <div className="day-card-recipe-list">
+              {componentDocs.map((componentDoc, index) => (
+                <button
+                  key={`${componentDoc.id}-${index}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onSelect(componentDoc.id, row, index);
+                  }}
+                  type="button"
+                >
+                  <span>{index + 1}</span>
+                  {componentDoc.title}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <div className="meta-row">
         <span>{row.Protein || ""}</span>
         <span>{row["Cuisine/flavor"] || ""}</span>

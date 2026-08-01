@@ -941,6 +941,92 @@
   -webkit-line-clamp: 2;
 }
 
+.day-card-recipes {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.day-card-recipes-toggle {
+  background: transparent;
+  border: 0;
+  color: var(--teal-strong);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  justify-self: start;
+  padding: 2px 0;
+  text-align: left;
+}
+
+.day-card-recipe-list {
+  display: grid;
+  gap: 5px;
+}
+
+.day-card-recipe-list button {
+  align-items: center;
+  background: #f8faf9;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
+  font: inherit;
+  font-size: 13px;
+  gap: 7px;
+  grid-template-columns: 22px minmax(0, 1fr);
+  padding: 7px 8px;
+  text-align: left;
+}
+
+.day-card-recipe-list button:hover,
+.day-card-recipe-list button:focus-visible {
+  border-color: var(--teal);
+  outline: none;
+}
+
+.day-card-recipe-list button span {
+  align-items: center;
+  background: #e9f3ef;
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 800;
+  height: 22px;
+  justify-content: center;
+  width: 22px;
+}
+
+.selected-recipe-heading {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.selected-recipe-heading h3 {
+  margin: 0;
+}
+
+.selected-recipe-name {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.selected-recipe-navigation {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.selected-recipe-navigation span {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
 .add-week-card:hover,
 .add-week-card:focus-visible {
   background: #edf5f2;
