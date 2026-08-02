@@ -11,6 +11,16 @@ export function resolveMealComponentDocs(row, docs) {
     .filter(Boolean);
 }
 
+export function collectPlannedMealIngredients(rows, docs, getIngredients = defaultIngredientsForDoc) {
+  return (rows || []).flatMap((row) => resolveMealComponentDocs(row, docs).flatMap((doc) => (
+    (getIngredients(doc) || []).map((ingredient) => ({ doc, ingredient, row }))
+  )));
+}
+
+function defaultIngredientsForDoc(doc) {
+  return doc?.recipe?.ingredients || [];
+}
+
 function legacyComponents(row) {
   const recipeId = row?.["Recipe id"] || row?.recipeId || "";
   return recipeId ? [{ recipeId, role: "complete" }] : [];

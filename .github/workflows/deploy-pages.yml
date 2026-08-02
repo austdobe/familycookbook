@@ -32,6 +32,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run core workflow tests
+        run: npm test
+
       - name: Configure deploy credentials
         run: |
           git config --global user.name "github-actions[bot]"

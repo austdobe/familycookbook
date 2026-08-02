@@ -19,7 +19,7 @@ import { formatQuantity } from "./services/units.js";
 import { deleteWeekPlanState, saveWeekPlanState, subscribeWeekPlanState, syncWeekPlanStateFromFirebase } from "./services/weekPlanStore.js";
 import { deleteWorkingWeek, subscribeWorkingWeeks, syncWorkingWeeksFromFirebase, upsertWeek, upsertWorkingWeek } from "./services/workingWeeksStore.js";
 import { groceryItemStableKey, prepTaskStableKey, reconcileGrocerySnapshot, reconcilePrepCheckedKeys } from "./domain/listReconciliation.js";
-import { resolveMealComponentDocs } from "./domain/plannedMeals.js";
+import { collectPlannedMealIngredients, resolveMealComponentDocs } from "./domain/plannedMeals.js";
 import "./styles.css";
 
 const views = [
@@ -4394,29 +4394,23 @@ function workingWeekMarkdown(week) {
 
 function buildGrocerySectionsFromMenuRows(menuRows, archiveDocs) {
   const grouped = new Map();
-  menuRows.forEach((row) => {
-    const docs = recipeDocsForMenuRow(row, archiveDocs);
-    if (!docs.length) {
+  collectPlannedMealIngredients(menuRows, archiveDocs, ingredientRowsForDoc).forEach(({ doc, ingredient: ingredientRow }) => {
+    const item = ingredientRow.Ingredient || ingredientRow.Item || "";
+    if (!item) {
       return;
     }
-    docs.forEach((doc) => ingredientRowsForDoc(doc).forEach((ingredientRow) => {
-      const item = ingredientRow.Ingredient || ingredientRow.Item || "";
-      if (!item) {
-        return;
-      }
-      const sectionTitle = grocerySectionForItem(item);
-      if (!grouped.has(sectionTitle)) {
-        grouped.set(sectionTitle, { title: sectionTitle, items: [] });
-      }
-      grouped.get(sectionTitle).items.push({
-        Quantity: ingredientRow.Quantity || "",
-        Item: item,
-        "Preferred version/type": ingredientRow["Preferred version/type"] || ingredientRow.Preferred || "",
-        "Acceptable alternatives": ingredientRow["Acceptable alternatives"] || ingredientRow.Alternatives || "",
-        Recipe: doc.title,
-        _recipeRefs: [doc.path],
-      });
-    }));
+    const sectionTitle = grocerySectionForItem(item);
+    if (!grouped.has(sectionTitle)) {
+      grouped.set(sectionTitle, { title: sectionTitle, items: [] });
+    }
+    grouped.get(sectionTitle).items.push({
+      Quantity: ingredientRow.Quantity || "",
+      Item: item,
+      "Preferred version/type": ingredientRow["Preferred version/type"] || ingredientRow.Preferred || "",
+      "Acceptable alternatives": ingredientRow["Acceptable alternatives"] || ingredientRow.Alternatives || "",
+      Recipe: doc.title,
+      _recipeRefs: [doc.path],
+    });
   });
 
   return [...grouped.values()]
