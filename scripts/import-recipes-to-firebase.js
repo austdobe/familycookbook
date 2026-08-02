@@ -24,6 +24,7 @@ function usage() {
   console.log("Usage:");
   console.log("  npm.cmd run import:recipes");
   console.log("  npm.cmd run import:recipes -- --date 2026-07-05");
+  console.log("  npm.cmd run import:recipes -- --only burgers-and-fries,cheeseburger-bowls");
   console.log("  npm.cmd run import:recipes -- --write");
   console.log("");
   console.log("By default this parses Markdown recipes into Firebase-shaped JSON and reports.");
@@ -581,7 +582,7 @@ function firestoreRecipePayload(recipe, importedAt) {
 async function writeRecipesToFirestore(recipes) {
   const importedAt = new Date().toISOString();
   const { app, db } = await firebaseClient();
-  const [{ deleteApp }, { collection, doc, getDocs, setDoc, terminate }] = await Promise.all([
+  const [{ deleteApp }, { collection, doc, getDoc, getDocs, setDoc, terminate }] = await Promise.all([
     import("firebase/app"),
     import("firebase/firestore"),
   ]);
@@ -589,9 +590,15 @@ async function writeRecipesToFirestore(recipes) {
 
   try {
     for (const recipe of recipes) {
+      const recipeRef = doc(db, "households", householdId, "recipes", recipe.id);
+      const existingSnapshot = await getDoc(recipeRef);
+      const existingRecipe = existingSnapshot.exists() ? existingSnapshot.data() : {};
       await setDoc(
-        doc(db, "households", householdId, "recipes", recipe.id),
-        firestoreRecipePayload(recipe, importedAt),
+        recipeRef,
+        firestoreRecipePayload({
+          ...recipe,
+          createdAt: existingRecipe.createdAt || recipe.createdAt,
+        }, importedAt),
         { merge: true }
       );
       console.log(`Wrote recipe ${recipe.id}`);
@@ -748,7 +755,16 @@ async function main() {
   }
 
   const reportDate = args.date || new Date().toISOString().slice(0, 10);
-  const recipeFiles = walkMarkdownFiles(archiveDir);
+  const allRecipeFiles = walkMarkdownFiles(archiveDir);
+  const requestedIds = String(args.only || "").split(",").map((id) => id.trim()).filter(Boolean);
+  const recipeFiles = requestedIds.length
+    ? allRecipeFiles.filter((filePath) => requestedIds.includes(slugFromPath(filePath)))
+    : allRecipeFiles;
+  const selectedIds = new Set(recipeFiles.map(slugFromPath));
+  const missingRequestedIds = requestedIds.filter((id) => !selectedIds.has(id));
+  if (missingRequestedIds.length) {
+    throw new Error(`Requested recipe IDs were not found: ${missingRequestedIds.join(", ")}`);
+  }
   const parsedRecipes = recipeFiles.map(parseRecipeFile);
   const summary = buildSummary(parsedRecipes, weeklyRecipeFiles());
   let firestoreAudit = null;
