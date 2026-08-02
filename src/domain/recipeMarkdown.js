@@ -248,10 +248,70 @@ export function createRecipeMarkdownTools({
   }
   
   function instructionSectionsFromMarkdown(markdown) {
-    return ["Basic Instructions", "Detailed Instructions"].flatMap((heading) => {
-      const steps = numberedItems(markdown, heading);
+    const knownSections = ["Basic Instructions", "Detailed Instructions"].flatMap((heading) => {
+      const body = sectionMarkdown(markdown, heading);
+      const steps = instructionStepsFromText(body);
       return steps.length ? [{ title: heading, steps }] : [];
     });
+    if (knownSections.length) {
+      return knownSections;
+    }
+
+    const fallback = looseInstructionSection(markdown);
+    return fallback.steps.length ? [fallback] : [];
+  }
+
+  function looseInstructionSection(markdown) {
+    const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
+    const headingPattern = /^(?:#{0,6}\s*)?(directions?|instructions?|method|preparation|steps)\s*:?\s*$/i;
+    const start = lines.findIndex((line) => headingPattern.test(line.trim()));
+    if (start === -1) {
+      return { title: "Directions", steps: [] };
+    }
+    const title = lines[start].replace(/^#{0,6}\s*/, "").replace(/:\s*$/, "").trim() || "Directions";
+    const body = [];
+    for (let index = start + 1; index < lines.length; index += 1) {
+      const line = lines[index].trim();
+      if (/^##\s+/.test(line) || /^(?:notes?|serving|storage|nutrition)\s*:?$/i.test(line)) {
+        break;
+      }
+      body.push(lines[index]);
+    }
+    return { title, steps: instructionStepsFromText(body.join("\n")) };
+  }
+
+  function instructionStepsFromText(value) {
+    const steps = [];
+    let current = null;
+    String(value || "").split("\n").forEach((rawLine) => {
+      const line = rawLine.trim();
+      if (!line) {
+        return;
+      }
+      const numbered = line.match(/^\d+[.)]\s+(.+)$/);
+      if (numbered) {
+        current = { order: steps.length + 1, text: stripInlineMarkdown(numbered[1]) };
+        steps.push(current);
+        return;
+      }
+      const bullet = line.match(/^[-*+]\s+(.+)$/);
+      if (bullet) {
+        current = { order: steps.length + 1, text: stripInlineMarkdown(bullet[1]) };
+        steps.push(current);
+        return;
+      }
+      const text = stripInlineMarkdown(line);
+      if (!text) {
+        return;
+      }
+      if (current) {
+        current.text = `${current.text} ${text}`.trim();
+      } else {
+        current = { order: steps.length + 1, text };
+        steps.push(current);
+      }
+    });
+    return steps;
   }
   
   function titleFromMarkdown(markdown) {

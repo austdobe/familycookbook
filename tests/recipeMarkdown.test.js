@@ -44,3 +44,36 @@ test("builds a structured save payload with stable recipe identity", () => {
   assert.equal(recipe.estimatedPrepMinutes, 15);
   assert.equal(recipe.ingredients[0].groceryCategory, "Meat and Seafood");
 });
+
+test("parses pasted Directions headings and continuation paragraphs for Cooking mode", () => {
+  const tools = createTools();
+  const markdown = [
+    "# Grilled Chicken",
+    "Directions",
+    "1. Season the Chicken",
+    "Pat the chicken dry.",
+    "Rub with olive oil and seasoning.",
+    "2. Grill the Chicken",
+    "Cook over indirect heat until done.",
+    "Notes",
+    "Rest before slicing.",
+  ].join("\n");
+
+  assert.deepEqual(tools.instructionSectionsFromMarkdown(markdown), [{
+    title: "Directions",
+    steps: [
+      { order: 1, text: "Season the Chicken Pat the chicken dry. Rub with olive oil and seasoning." },
+      { order: 2, text: "Grill the Chicken Cook over indirect heat until done." },
+    ],
+  }]);
+});
+
+test("keeps canonical Basic Instructions available to Cooking mode", () => {
+  const tools = createTools();
+  const markdown = "# Soup\n## Basic Instructions\n1. Chop vegetables.\n2. Simmer until tender.\n## Notes\n- Serve warm.";
+
+  assert.deepEqual(tools.instructionSectionsFromMarkdown(markdown)[0].steps.map((step) => step.text), [
+    "Chop vegetables.",
+    "Simmer until tender.",
+  ]);
+});
