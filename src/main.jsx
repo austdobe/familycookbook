@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { RecipeImportDialog } from "./components/RecipeImportDialog.jsx";
+import { recipeMatchesQuery, recipeProtein, recipeStage } from "./domain/recipeDiscovery.js";
 import {
   clearGroceryState,
   deleteGroceryState,
@@ -1633,6 +1634,7 @@ function WeekMealAssignmentPanel({
           </div>
           {archiveDocs.length ? (
             <RecipePicker
+              actionLabel={mealStyle === "complete" ? "Use for this day" : `Add as ${formatCategoryLabel(componentRole)}`}
               docs={archiveDocs}
               onChoose={(doc) => onAssignRecipe(doc, { mealStyle, role: mealStyle === "complete" ? "complete" : componentRole })}
               onRecipeDragEnd={onRecipeDragEnd}
@@ -1691,25 +1693,36 @@ function WeekMealAssignmentPanel({
   );
 }
 
-function RecipePicker({ docs, onChoose, onRecipeDragEnd, onRecipeDragStart }) {
+function RecipePicker({ actionLabel, docs, onChoose, onRecipeDragEnd, onRecipeDragStart }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("all");
+  const [protein, setProtein] = useState("all");
+  const [stage, setStage] = useState("all");
   const [quickOnly, setQuickOnly] = useState(false);
   const [draggingRecipeId, setDraggingRecipeId] = useState("");
+  const [addedRecipeId, setAddedRecipeId] = useState("");
   const categories = useMemo(() => {
     const values = docs
       .map((doc) => normalizeRecipeCategory(doc.recipe?.category || pathCategory(doc.path)))
       .filter(Boolean);
     return ["all", ...uniqueValues(values).sort()];
   }, [docs]);
+  const proteins = useMemo(() => ["all", ...uniqueValues(docs.map(recipeProtein).filter(Boolean)).sort()], [docs]);
   const filteredDocs = useMemo(() => {
-    const needle = query.trim().toLowerCase();
     return docs
       .filter((doc) => category === "all" || normalizeRecipeCategory(doc.recipe?.category || pathCategory(doc.path)) === category)
+      .filter((doc) => protein === "all" || recipeProtein(doc).toLowerCase() === protein.toLowerCase())
+      .filter((doc) => stage === "all" || recipeStage(doc) === stage)
       .filter((doc) => !quickOnly || recipeIsUnderThirtyMinutes(doc))
-      .filter((doc) => !needle || recipePickerSearchText(doc).includes(needle))
-      .slice(0, 24);
-  }, [category, docs, query, quickOnly]);
+      .filter((doc) => recipeMatchesQuery(doc, query))
+      .slice(0, 60);
+  }, [category, docs, protein, query, quickOnly, stage]);
+  const hasFilters = Boolean(query.trim() || category !== "all" || protein !== "all" || stage !== "all" || quickOnly);
+
+  const chooseRecipe = async (doc) => {
+    await onChoose(doc);
+    setAddedRecipeId(doc.id);
+  };
 
   return (
     <div className="recipe-picker">
@@ -1717,11 +1730,27 @@ function RecipePicker({ docs, onChoose, onRecipeDragEnd, onRecipeDragStart }) {
         Search recipes
         <input
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search by meal, protein, flavor"
+          placeholder="Search name, ingredient, protein, or flavor"
           type="search"
           value={query}
         />
       </label>
+      <div className="recipe-picker-filters">
+        <label>
+          Protein
+          <select onChange={(event) => setProtein(event.target.value)} value={protein}>
+            {proteins.map((option) => <option key={option} value={option}>{option === "all" ? "All proteins" : option}</option>)}
+          </select>
+        </label>
+        <label>
+          Recipe status
+          <select onChange={(event) => setStage(event.target.value)} value={stage}>
+            <option value="all">All stages</option>
+            <option value="stage-2">Stage 2 - Promoted</option>
+            <option value="stage-1">Stage 1 - Draft</option>
+          </select>
+        </label>
+      </div>
       <div className="recipe-picker-categories" aria-label="Recipe categories">
         <button
           aria-pressed={quickOnly}
@@ -1743,13 +1772,19 @@ function RecipePicker({ docs, onChoose, onRecipeDragEnd, onRecipeDragStart }) {
           </button>
         ))}
       </div>
+      <div className="recipe-picker-results">
+        <span>{filteredDocs.length} of {docs.length} recipes</span>
+        {hasFilters ? (
+          <button className="mini-button" onClick={() => { setQuery(""); setCategory("all"); setProtein("all"); setStage("all"); setQuickOnly(false); }} type="button">Clear filters</button>
+        ) : null}
+      </div>
       <div className="recipe-picker-list">
         {filteredDocs.length ? filteredDocs.map((doc) => (
           <button
             className={`recipe-picker-item ${draggingRecipeId === doc.id ? "dragging" : ""}`}
             draggable
             key={doc.id}
-            onClick={() => onChoose(doc)}
+            onClick={() => chooseRecipe(doc)}
             onDragEnd={() => {
               setDraggingRecipeId("");
               onRecipeDragEnd?.();
@@ -1764,8 +1799,11 @@ function RecipePicker({ docs, onChoose, onRecipeDragEnd, onRecipeDragStart }) {
             title="Drag this recipe onto a week card, or click to set it on the selected card"
             type="button"
           >
-            <span className="recipe-picker-title">{doc.title}</span>
-            <span className="recipe-picker-meta">{recipePickerMeta(doc)}</span>
+            <span className="recipe-picker-item-copy">
+              <span className="recipe-picker-title">{doc.title}</span>
+              <span className="recipe-picker-meta">{recipePickerMeta(doc)}</span>
+            </span>
+            <span className="recipe-picker-add-label">{addedRecipeId === doc.id ? "Added" : actionLabel || "Add"}</span>
           </button>
         )) : (
           <div className="empty recipe-picker-empty">No recipes match that search.</div>
@@ -1773,24 +1811,6 @@ function RecipePicker({ docs, onChoose, onRecipeDragEnd, onRecipeDragStart }) {
       </div>
     </div>
   );
-}
-
-function recipePickerSearchText(doc) {
-  const recipe = doc.recipe || {};
-  const totalMinutes = recipeTotalMinutes(doc);
-  return [
-    doc.title,
-    doc.summary,
-    recipe.category,
-    recipe.protein,
-    recipe.cuisine,
-    recipe.planning?.protein,
-    recipe.planning?.cuisine,
-    Number.isFinite(totalMinutes) ? `${totalMinutes} minutes` : "",
-    recipeIsUnderThirtyMinutes(doc) ? "under 30 quick fast" : "",
-    pathCategory(doc.path),
-    stageForDoc(doc),
-  ].filter(Boolean).join(" ").toLowerCase();
 }
 
 function recipePickerMeta(doc) {
@@ -3102,7 +3122,9 @@ function ArchiveView({
   setUnitMode,
   unitMode,
 }) {
-  const directories = useMemo(() => buildArchiveDirectories(docs), [docs]);
+  const [libraryQuery, setLibraryQuery] = useState("");
+  const visibleDocs = useMemo(() => libraryQuery.trim() ? archiveDocs.filter((doc) => recipeMatchesQuery(doc, libraryQuery)) : docs, [archiveDocs, docs, libraryQuery]);
+  const directories = useMemo(() => buildArchiveDirectories(visibleDocs), [visibleDocs]);
   const [selectedDirectoryId, setSelectedDirectoryId] = useState("");
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const [recipeDialogMode, setRecipeDialogMode] = useState("");
@@ -3147,6 +3169,18 @@ function ArchiveView({
       />
       <div className="split-view">
         <div className="archive-browser">
+          <div className="archive-library-search">
+            <label>
+              Find a recipe
+              <input
+                onChange={(event) => setLibraryQuery(event.target.value)}
+                placeholder="Search name, ingredient, protein, or flavor"
+                type="search"
+                value={libraryQuery}
+              />
+            </label>
+            <span>{visibleDocs.length} recipe{visibleDocs.length === 1 ? "" : "s"}</span>
+          </div>
           {directories.length ? (
             <>
               <div className="archive-directory-list" aria-label="Recipe categories">
@@ -3174,8 +3208,8 @@ function ArchiveView({
           ) : (
             <RecipeZeroState
               onAddRecipe={() => setRecipeDialogMode("add")}
-              subtitle="Start with a typed recipe, pasted recipe text, or a recipe photo."
-              title="No Recipes Yet"
+              subtitle={libraryQuery ? "Try another ingredient, title, protein, or flavor." : "Start with a typed recipe, pasted recipe text, or a recipe photo."}
+              title={libraryQuery ? "No Matching Recipes" : "No Recipes Yet"}
             />
           )}
         </div>
