@@ -505,7 +505,9 @@ export function RecipeImportDialog({
           <section className={`recipe-readiness recipe-import-summary ${readiness.status}`} aria-live="polite">
             <div className="recipe-readiness-heading">
               <strong>{readiness.status === "ready" ? "Ready to Plan" : readiness.status === "needs-review" ? "Needs Review" : "Invalid Recipe"}</strong>
-              <span>{readiness.ingredientCount} ingredients · {readiness.directionCount} directions</span>
+              <span>
+                {readiness.ingredientCount} ingredient{readiness.ingredientCount === 1 ? "" : "s"} · {readiness.directionCount} direction{readiness.directionCount === 1 ? "" : "s"}
+              </span>
             </div>
             {readiness.blockers.length || readiness.warnings.length ? (
               <ul>{[...readiness.blockers, ...readiness.warnings].map((issue) => <li key={issue}>{issue}</li>)}</ul>
