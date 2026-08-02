@@ -52,6 +52,7 @@ The sidebar routes are defined by the `views` array in `src/main.jsx`.
 | `src/domain/listReconciliation.js` | Stable grocery/prep identities and state-preserving regeneration. |
 | `src/domain/groceryEngine.js` | Grocery aggregation, category assignment, quantity merging, shopping normalization, and sorting. |
 | `src/domain/plannedMeals.js` | Complete, composed, hybrid, and legacy meal-component resolution. |
+| `src/domain/prepEngine.js` | Recipe-owned prep task generation, scheduling, storage guidance, and checklist flattening. |
 | `src/domain/recipeMarkdown.js` | Canonical recipe Markdown normalization, parsing, and recipe save payloads. |
 | `src/domain/recipeOcr.js` | OCR cleanup and canonical Markdown generation from recipe images. |
 

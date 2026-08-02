@@ -377,6 +377,8 @@ export function createRecipeMarkdownTools({
   return {
     canonicalRecipeMarkdownForSave,
     formatCategoryLabel,
+    instructionSectionsFromMarkdown,
+    labeledBulletValues,
     minutesValue,
     normalizeRecipeCategory,
     numericValue,
