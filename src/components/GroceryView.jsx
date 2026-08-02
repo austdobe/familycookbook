@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react";
+import { sortGroceryItems } from "../domain/groceryEngine.js";
 import { groceryItemStableKey } from "../domain/listReconciliation.js";
 import { clearGroceryState, saveGroceryState, subscribeGroceryState, toggleGroceryItem } from "../services/groceryStore.js";
 import { formatQuantity } from "../services/units.js";
 
-export function GroceryView({ ingredientMode, isSealed = false, search, setIngredientMode, setUnitMode, sortItems, unitMode, week }) {
+export function GroceryView({ ingredientMode, isSealed = false, search, setIngredientMode, setUnitMode, unitMode, week }) {
   const [groceryState, setGroceryState] = useState({ checkedKeys: [], manualItems: [], sections: [] });
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
   const [editingGroceryKey, setEditingGroceryKey] = useState("");
@@ -74,9 +75,9 @@ export function GroceryView({ ingredientMode, isSealed = false, search, setIngre
   const sections = moveCheckedItemsToHaveIt(recipeSections
     .map((section) => ({
       ...section,
-      items: sortItems(section.items.filter((item) => matchesSearch(Object.values(item).join(" "), search))),
+      items: sortGroceryItems(section.items.filter((item) => matchesSearch(Object.values(item).join(" "), search))),
     }))
-    .filter((section) => section.items.length), checkedKeys, sortItems);
+    .filter((section) => section.items.length), checkedKeys);
   const openAddDialog = () => {
     if (isSealed) {
       return;
@@ -491,10 +492,10 @@ function mergeManualItemsIntoSections(recipeSections, manualItems, categoryOptio
   return [...sections, ...grouped.values()];
 }
 
-function moveCheckedItemsToHaveIt(sections, checkedKeys, sortItems) {
+function moveCheckedItemsToHaveIt(sections, checkedKeys) {
   const checkedItems = [];
   const activeSections = sections.map((section) => ({ ...section, items: section.items.filter((item) => { if (checkedKeys.has(item._key)) { checkedItems.push(item); return false; } return true; }) })).filter((section) => section.items.length);
-  return checkedItems.length ? [...activeSections, { isHaveIt: true, title: "Have It", items: sortItems(checkedItems) }] : activeSections;
+  return checkedItems.length ? [...activeSections, { isHaveIt: true, title: "Have It", items: sortGroceryItems(checkedItems) }] : activeSections;
 }
 
 function emptyManualGroceryForm(section = "Other") { return { alternatives: "", item: "", preferred: "", quantity: "", recipe: "Manual add", section }; }

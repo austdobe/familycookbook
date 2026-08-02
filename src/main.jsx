@@ -15,7 +15,6 @@ import {
   isLikelyPerishableItem,
   normalizeSectionName,
   parseQuantityParts,
-  sortGroceryItems,
 } from "./domain/groceryEngine.js";
 import { createRecipeMarkdownTools } from "./domain/recipeMarkdown.js";
 import { cleanRecipeOcrText } from "./domain/recipeOcr.js";
@@ -377,7 +376,6 @@ function App() {
               setActiveDocId={setActiveDocId}
               setIngredientMode={setIngredientMode}
               setUnitMode={setUnitMode}
-              sortItems={sortGroceryItems}
               unitMode={unitMode}
               week={selectedWeek}
               weekPlanState={selectedWeekPlanState}
