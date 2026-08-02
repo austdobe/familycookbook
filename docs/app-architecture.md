@@ -50,6 +50,7 @@ The sidebar routes are defined by the `views` array in `src/main.jsx`.
 | `src/services/recipeFeedbackStore.js` | Subscribe/save recipe feedback. |
 | `src/services/units.js` | Quantity display conversions. |
 | `src/domain/listReconciliation.js` | Stable grocery/prep identities and state-preserving regeneration. |
+| `src/domain/groceryEngine.js` | Grocery aggregation, category assignment, quantity merging, shopping normalization, and sorting. |
 | `src/domain/plannedMeals.js` | Complete, composed, hybrid, and legacy meal-component resolution. |
 | `src/domain/recipeMarkdown.js` | Canonical recipe Markdown normalization, parsing, and recipe save payloads. |
 | `src/domain/recipeOcr.js` | OCR cleanup and canonical Markdown generation from recipe images. |
@@ -68,7 +69,7 @@ Generated list rows use semantic identities rather than array positions. When a 
 
 ## Grocery Generation Notes
 
-Grocery generation currently lives in `src/main.jsx`. It parses recipe ingredient tables and applies display-oriented normalization:
+Grocery generation lives in `src/domain/groceryEngine.js`. It consumes parsed recipe ingredients and applies display-oriented normalization:
 
 - merge duplicate item names;
 - keep recipe ownership;
@@ -78,7 +79,7 @@ Grocery generation currently lives in `src/main.jsx`. It parses recipe ingredien
 - normalize can/cup quantities for can-friendly items;
 - keep green onions separate from regular onions.
 
-This logic should eventually move into a shared grocery engine module so scripts and app behavior match.
+The React app uses this module directly. Export scripts should use the same engine when Firebase-backed working-week export is implemented.
 
 ## Markdown Rendering
 
