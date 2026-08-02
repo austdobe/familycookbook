@@ -51,6 +51,8 @@ The sidebar routes are defined by the `views` array in `src/main.jsx`.
 | `src/services/units.js` | Quantity display conversions. |
 | `src/domain/listReconciliation.js` | Stable grocery/prep identities and state-preserving regeneration. |
 | `src/domain/plannedMeals.js` | Complete, composed, hybrid, and legacy meal-component resolution. |
+| `src/domain/recipeMarkdown.js` | Canonical recipe Markdown normalization, parsing, and recipe save payloads. |
+| `src/domain/recipeOcr.js` | OCR cleanup and canonical Markdown generation from recipe images. |
 
 ## Data Flow
 
