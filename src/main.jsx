@@ -384,6 +384,7 @@ function WeekView({
 }) {
   const [weekPlanState, setWeekPlanState] = useState({ menuRows: [] });
   const [recipeDialogMode, setRecipeDialogMode] = useState("");
+  const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [selectedDay, setSelectedDay] = useState("");
   const [selectedRecipeIndex, setSelectedRecipeIndex] = useState(0);
   const [weekCreatorOpen, setWeekCreatorOpen] = useState(false);
@@ -833,8 +834,27 @@ function WeekView({
             title="No Recipe Attached"
           />
         )}
-        {readerDoc ? <RecipeFeedbackPanel recipe={readerDoc} /> : null}
       </section>
+      {feedbackDialogOpen && readerDoc ? (
+        <div className="dialog-backdrop" role="presentation" onMouseDown={() => setFeedbackDialogOpen(false)}>
+          <div
+            aria-label={`Rate ${readerDoc.title}`}
+            aria-modal="true"
+            className="recipe-feedback-dialog"
+            onMouseDown={(event) => event.stopPropagation()}
+            role="dialog"
+          >
+            <div className="dialog-header">
+              <div>
+                <h3>Rate Selected Recipe</h3>
+                <p className="dialog-help">{readerDoc.title}</p>
+              </div>
+              <button aria-label="Close recipe rating" className="icon-button" onClick={() => setFeedbackDialogOpen(false)} type="button">x</button>
+            </div>
+            <RecipeFeedbackPanel recipe={readerDoc} />
+          </div>
+        </div>
+      ) : null}
       <WeekActionMenu
         menuOpen={weekActionMenuOpen}
         onAddRecipe={() => {
@@ -848,6 +868,11 @@ function WeekView({
         isSealed={isSealed}
         onEditWeek={openMealEditor}
         onRequestUnsealWeek={requestUnsealWeek}
+        onRateRecipe={() => {
+          setWeekActionMenuOpen(false);
+          setFeedbackDialogOpen(true);
+        }}
+        selectedRecipe={readerDoc}
         onSealWeek={sealWeek}
         setMenuOpen={setWeekActionMenuOpen}
       />
@@ -1952,7 +1977,9 @@ function WeekActionMenu({
   onAddWeek,
   onEditWeek,
   onRequestUnsealWeek,
+  onRateRecipe,
   onSealWeek,
+  selectedRecipe,
   setMenuOpen,
 }) {
   return (
@@ -1965,6 +1992,7 @@ function WeekActionMenu({
             {isSealed ? "Unseal Week Lists" : "Seal Week Lists"}
           </button>
           <button onClick={onAddRecipe} role="menuitem" type="button">Create New Recipe</button>
+          <button disabled={!selectedRecipe} onClick={onRateRecipe} role="menuitem" type="button">Rate Selected Recipe</button>
         </div>
       ) : null}
       <button
