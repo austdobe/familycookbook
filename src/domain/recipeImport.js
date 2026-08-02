@@ -1,3 +1,5 @@
+import { isLikelyNonIngredientRow } from "./groceryEngine.js";
+
 export function emptyBuilderIngredient() {
   return { quantity: "", item: "", preferred: "", alternatives: "", notes: "" };
 }
@@ -47,11 +49,58 @@ export function analyzeRecipeImport(text) {
   const plainTitle = lines.find((line) => !/^(?:ingredients?|directions?|instructions?|method|preparation|steps|servings?|prep time|cook time|status|category)\s*:?/i.test(line))
     ?.replace(/^#+\s*/, "") || "";
   const title = markdownTitle || plainTitle;
+  const readiness = analyzeRecipeReadiness({ draft, title });
+  return {
+    draft,
+    title,
+    ingredientCount,
+    directionCount,
+    ...readiness,
+    ready: readiness.status === "ready",
+  };
+}
+
+export function analyzeRecipeReadiness({ draft, title }) {
+  const ingredients = (draft?.ingredients || []).filter((ingredient) => ingredient.item.trim());
+  const directions = (draft?.directions || [])
+    .map((step) => step.trim())
+    .filter((step) => step && !/^review and add (?:instructions|directions)/i.test(step));
+  const suspiciousIngredients = ingredients.filter((ingredient) => (
+    isLikelyNonIngredientRow(ingredient.item, ingredient.quantity, title)
+  ));
+  const usableIngredients = ingredients.filter((ingredient) => !suspiciousIngredients.includes(ingredient));
+  const missingQuantityCount = usableIngredients.filter((ingredient) => (
+    !ingredient.quantity.trim() && !/\b(?:to taste|as needed|pinch|dash)\b/i.test(ingredient.item)
+  )).length;
+  const blockers = [];
   const warnings = [];
-  if (!title) warnings.push("No recipe title was found. Add a title before saving.");
-  if (!ingredientCount) warnings.push("No ingredients were recognized. Check for an Ingredients heading and one item per line.");
-  if (!directionCount) warnings.push("No directions were recognized. Check for a Directions or Instructions heading.");
-  return { draft, title, ingredientCount, directionCount, warnings, ready: ingredientCount > 0 };
+
+  if (!String(title || "").trim()) {
+    blockers.push("Add a recognizable recipe title.");
+  }
+  if (!usableIngredients.length) {
+    blockers.push("Add at least one real ingredient before saving.");
+  }
+  if (!directions.length) {
+    warnings.push("Add at least one cooking direction so Cooking mode can guide the recipe.");
+  }
+  if (suspiciousIngredients.length) {
+    warnings.push(`${suspiciousIngredients.length} ingredient row${suspiciousIngredients.length === 1 ? " looks" : "s look"} like directions or the recipe title and should be reviewed.`);
+  }
+  if (missingQuantityCount) {
+    warnings.push(`${missingQuantityCount} ingredient${missingQuantityCount === 1 ? " is" : "s are"} missing a quantity.`);
+  }
+
+  const status = blockers.length ? "invalid" : warnings.length ? "needs-review" : "ready";
+  return {
+    blockers,
+    directionCount: directions.length,
+    ingredientCount: usableIngredients.length,
+    missingQuantityCount,
+    status,
+    suspiciousIngredientCount: suspiciousIngredients.length,
+    warnings,
+  };
 }
 
 export function recipeBuilderDraftToMarkdown({ builderDraft, category, status, title }) {
@@ -103,7 +152,7 @@ function plainIngredientRows(markdown) {
   for (let index = start + 1; index < lines.length; index += 1) {
     const line = lines[index].replace(/^\s*[-*+]\s+/, "").trim();
     if (!line) continue;
-    if (/^(?:#{0,6}\s*)?(?:directions?|instructions?|method|preparation|steps)\s*:?\s*$/i.test(line)) break;
+    if (/^#{1,2}\s+/.test(line) || /^(?:#{0,6}\s*)?(?:(?:basic|detailed)\s+)?(?:directions?|instructions?|method|preparation|steps)\s*:?\s*$/i.test(line)) break;
     const match = line.match(/^((?:\d+\s+)?[¼½¾⅓⅔⅛⅜⅝⅞]|\d+(?:\.\d+|\/\d+)?(?:\s*[–-]\s*\d+(?:\.\d+|\/\d+)?)?|pinch|dash|to taste|as needed)\s+(.+)$/i);
     if (!match) {
       rows.push({ ...emptyBuilderIngredient(), item: line });

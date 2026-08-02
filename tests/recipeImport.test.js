@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { analyzeRecipeImport, recipeBuilderDraftFromText, recipeBuilderDraftToMarkdown } from "../src/domain/recipeImport.js";
+import { analyzeRecipeImport, analyzeRecipeReadiness, recipeBuilderDraftFromText, recipeBuilderDraftToMarkdown } from "../src/domain/recipeImport.js";
 
 test("recognizes canonical recipe Markdown", () => {
   const result = analyzeRecipeImport(`# Lemon Chicken
@@ -38,7 +38,7 @@ Directions:
 test("warns when pasted text cannot create grocery items", () => {
   const result = analyzeRecipeImport("# Toast\n\nDirections\n1. Toast the bread.");
   assert.equal(result.ready, false);
-  assert.match(result.warnings.join(" "), /ingredients/i);
+  assert.match(result.blockers.join(" "), /ingredient/i);
 });
 
 test("generated Markdown round trips through the parser", () => {
@@ -62,4 +62,58 @@ test("generated Markdown round trips through the parser", () => {
   assert.equal(draft.ingredients[0].item, "ground beef");
   assert.deepEqual(draft.directions, ["Brown the beef.", "Fill the tortillas."]);
   assert.match(markdown, /\| 1 lb \| ground beef \|/);
+});
+
+test("marks complete recipes ready for planning and Cooking mode", () => {
+  const result = analyzeRecipeImport("# Soup\n## Ingredients\n- 2 cups broth\n- 1 lb chicken\n## Basic Instructions\n1. Simmer until cooked.");
+
+  assert.equal(result.status, "ready");
+  assert.equal(result.ready, true);
+  assert.deepEqual(result.blockers, []);
+});
+
+test("allows incomplete recipes to remain Stage 1 review drafts", () => {
+  const readiness = analyzeRecipeReadiness({
+    title: "Simple Salad",
+    draft: {
+      ingredients: [{ quantity: "", item: "lettuce" }],
+      directions: [],
+    },
+  });
+
+  assert.equal(readiness.status, "needs-review");
+  assert.equal(readiness.blockers.length, 0);
+  assert.match(readiness.warnings.join(" "), /cooking direction/i);
+  assert.match(readiness.warnings.join(" "), /missing a quantity/i);
+});
+
+test("blocks recipes without a title or real ingredients", () => {
+  const readiness = analyzeRecipeReadiness({
+    title: "",
+    draft: {
+      ingredients: [{ quantity: "1", item: "mix everything together" }],
+      directions: ["Serve."],
+    },
+  });
+
+  assert.equal(readiness.status, "invalid");
+  assert.equal(readiness.blockers.length, 2);
+});
+
+test("flags instruction and recipe-title rows in Ingredients", () => {
+  const readiness = analyzeRecipeReadiness({
+    title: "Cast Iron Grilled Potatoes",
+    draft: {
+      ingredients: [
+        { quantity: "2 lb", item: "baby potatoes" },
+        { quantity: "1", item: "cut potatoes in half" },
+        { quantity: "", item: "cast iron grilled potatoes" },
+      ],
+      directions: ["Grill until tender."],
+    },
+  });
+
+  assert.equal(readiness.status, "needs-review");
+  assert.equal(readiness.ingredientCount, 1);
+  assert.equal(readiness.suspiciousIngredientCount, 2);
 });

@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useMemo, useState } from "react";
 import {
   analyzeRecipeImport,
+  analyzeRecipeReadiness,
   emptyBuilderIngredient,
   emptyRecipeBuilderDraft,
   recipeBuilderDraftFromText,
@@ -32,6 +33,16 @@ export function RecipeImportDialog({
   const categoryOptions = useMemo(() => recipeCategoryOptions(archiveDocs), [archiveDocs]);
   const dialogOpen = Boolean(dialogMode);
   const imageInputId = useId();
+  const readiness = useMemo(() => {
+    if (!dialogOpen || (!title.trim() && !recipeText.trim() && editorTab !== "builder")) {
+      return null;
+    }
+    if (editorTab === "builder") {
+      return analyzeRecipeReadiness({ draft: builderDraft, title });
+    }
+    const analysis = analyzeRecipeImport(recipeText);
+    return analyzeRecipeReadiness({ draft: analysis.draft, title: title.trim() || analysis.title });
+  }, [builderDraft, dialogOpen, editorTab, recipeText, title]);
 
   const resetForm = () => {
     setTitle("");
@@ -193,13 +204,14 @@ export function RecipeImportDialog({
       return;
     }
 
-    if (editorTab === "builder" && !builderDraft.ingredients.some((ingredient) => ingredient.item.trim())) {
-      setSaveStatus("Add at least one ingredient before saving.");
+    const saveAnalysis = analyzeRecipeImport(markdownToSave);
+    const saveReadiness = analyzeRecipeReadiness({ draft: saveAnalysis.draft, title: finalTitle });
+    if (saveReadiness.status === "invalid") {
+      setSaveStatus(saveReadiness.blockers[0]);
       return;
     }
-
-    if (editorTab === "markdown" && !analyzeRecipeImport(markdownToSave).ingredientCount) {
-      setSaveStatus("Add a recognizable Ingredients section before saving.");
+    if (status === "stage-2" && saveReadiness.status !== "ready") {
+      setSaveStatus(`Stage 2 requires a ready recipe. ${saveReadiness.warnings[0]}`);
       return;
     }
 
@@ -338,7 +350,7 @@ export function RecipeImportDialog({
               {importAnalysis ? (
                 <div className={`recipe-import-summary ${importAnalysis.ready ? "ready" : "needs-review"}`}>
                   <strong>Recognized {importAnalysis.ingredientCount} ingredients and {importAnalysis.directionCount} directions.</strong>
-                  {importAnalysis.warnings.length ? <ul>{importAnalysis.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul> : <span>Everything needed for the grocery list was found.</span>}
+                  {importAnalysis.blockers.length || importAnalysis.warnings.length ? <ul>{[...importAnalysis.blockers, ...importAnalysis.warnings].map((warning) => <li key={warning}>{warning}</li>)}</ul> : <span>Everything needed for grocery and cooking guidance was found.</span>}
                 </div>
               ) : null}
               <section className="recipe-builder-section">
@@ -489,6 +501,18 @@ export function RecipeImportDialog({
             </div>
           )}
         </div>
+        {readiness ? (
+          <section className={`recipe-readiness recipe-import-summary ${readiness.status}`} aria-live="polite">
+            <div className="recipe-readiness-heading">
+              <strong>{readiness.status === "ready" ? "Ready to Plan" : readiness.status === "needs-review" ? "Needs Review" : "Invalid Recipe"}</strong>
+              <span>{readiness.ingredientCount} ingredients · {readiness.directionCount} directions</span>
+            </div>
+            {readiness.blockers.length || readiness.warnings.length ? (
+              <ul>{[...readiness.blockers, ...readiness.warnings].map((issue) => <li key={issue}>{issue}</li>)}</ul>
+            ) : <p>This recipe can create grocery and cooking guidance.</p>}
+            {readiness.status === "needs-review" && status === "stage-1" ? <p>You can save this as a Stage 1 draft and finish it later.</p> : null}
+          </section>
+        ) : null}
         <div className="dialog-actions recipe-intake-actions">
           {saveStatus ? <span className="pill">{saveStatus}</span> : null}
           <button className="quiet-button" onClick={closeDialog} type="button">Cancel</button>
