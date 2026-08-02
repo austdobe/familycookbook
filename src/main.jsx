@@ -7,6 +7,7 @@ import { PrepView } from "./components/PrepView.jsx";
 import { AddWeekCardButton, CardEditDialog, ConfirmDialog, DayCard, WeekActionMenu } from "./components/WeekPresentation.jsx";
 import { WeekCreator, WeekMealAssignmentPanel } from "./components/WeekEditors.jsx";
 import { recipeMatchesQuery } from "./domain/recipeDiscovery.js";
+import { summarizeRecipeHealth } from "./domain/recipeImport.js";
 import {
   buildGrocerySectionsFromMenuRows,
   flattenGrocerySections,
@@ -1687,7 +1688,15 @@ function ArchiveView({
   unitMode,
 }) {
   const [libraryQuery, setLibraryQuery] = useState("");
-  const visibleDocs = useMemo(() => libraryQuery.trim() ? archiveDocs.filter((doc) => recipeMatchesQuery(doc, libraryQuery)) : docs, [archiveDocs, docs, libraryQuery]);
+  const [healthMode, setHealthMode] = useState("all");
+  const libraryHealth = useMemo(() => summarizeRecipeHealth(archiveDocs), [archiveDocs]);
+  const healthById = useMemo(() => new Map(libraryHealth.recipes.map((recipe) => [recipe.doc.id, recipe])), [libraryHealth]);
+  const visibleDocs = useMemo(() => {
+    const matchingDocs = libraryQuery.trim() ? archiveDocs.filter((doc) => recipeMatchesQuery(doc, libraryQuery)) : docs;
+    return healthMode === "attention"
+      ? matchingDocs.filter((doc) => healthById.get(doc.id)?.status !== "ready")
+      : matchingDocs;
+  }, [archiveDocs, docs, healthById, healthMode, libraryQuery]);
   const directories = useMemo(() => buildArchiveDirectories(visibleDocs), [visibleDocs]);
   const [selectedDirectoryId, setSelectedDirectoryId] = useState("");
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
@@ -1743,7 +1752,17 @@ function ArchiveView({
                 value={libraryQuery}
               />
             </label>
-            <span>{visibleDocs.length} recipe{visibleDocs.length === 1 ? "" : "s"}</span>
+            <div className="recipe-health-switch" role="group" aria-label="Recipe health filter">
+              <button className={healthMode === "all" ? "active" : ""} onClick={() => setHealthMode("all")} type="button">
+                All Recipes <span>{archiveDocs.length}</span>
+              </button>
+              <button className={healthMode === "attention" ? "active" : ""} onClick={() => setHealthMode("attention")} type="button">
+                Needs Attention <span>{libraryHealth.attentionCount}</span>
+              </button>
+            </div>
+            <span className="recipe-health-summary">
+              {libraryHealth.counts.ready} ready / {libraryHealth.counts["needs-review"]} review / {libraryHealth.counts.invalid} invalid
+            </span>
           </div>
           {directories.length ? (
             <>
@@ -1765,21 +1784,25 @@ function ArchiveView({
               </div>
               <div className="archive-recipe-list" aria-label="Recipes in selected directory">
                 {directoryDocs.map((doc) => (
-                  <ArchiveRecipeButton activeDocId={selected?.id || activeDocId} doc={doc} key={doc.id} onSelect={setActiveDocId} />
+                  <ArchiveRecipeButton activeDocId={selected?.id || activeDocId} doc={doc} key={doc.id} onSelect={setActiveDocId} readiness={healthById.get(doc.id)} />
                 ))}
               </div>
             </>
           ) : (
             <RecipeZeroState
               onAddRecipe={() => setRecipeDialogMode("add")}
-              subtitle={libraryQuery ? "Try another ingredient, title, protein, or flavor." : "Start with a typed recipe, pasted recipe text, or a recipe photo."}
-              title={libraryQuery ? "No Matching Recipes" : "No Recipes Yet"}
+              subtitle={healthMode === "attention" && !libraryQuery ? "Every recipe in the current library passes the planning and cooking checks." : libraryQuery ? "Try another ingredient, title, protein, or flavor." : "Start with a typed recipe, pasted recipe text, or a recipe photo."}
+              title={healthMode === "attention" && !libraryQuery ? "Recipe Library Is Ready" : libraryQuery ? "No Matching Recipes" : "No Recipes Yet"}
             />
           )}
         </div>
         <div className="recipe-reader">
           {selected ? (
             <>
+              <RecipeHealthCard
+                onRepair={() => setRecipeDialogMode("edit")}
+                readiness={healthById.get(selected.id)}
+              />
               <div className="reader-toolbar">
                 <IngredientDetailToggle mode={ingredientMode} setMode={setIngredientMode} />
                 <QuantityUnitToggle mode={unitMode} setMode={setUnitMode} />
@@ -1790,8 +1813,8 @@ function ArchiveView({
           ) : (
             <RecipeZeroState
               onAddRecipe={() => setRecipeDialogMode("add")}
-              subtitle="Your saved recipes will show here once you add the first one."
-              title="Build Your Recipe Library"
+              subtitle={healthMode === "attention" ? "Switch back to All Recipes to browse the full library." : "Your saved recipes will show here once you add the first one."}
+              title={healthMode === "attention" ? "No Recipes Need Attention" : "Build Your Recipe Library"}
             />
           )}
         </div>
@@ -1861,7 +1884,7 @@ function WeekZeroState({ onAddWeek }) {
   );
 }
 
-function ArchiveRecipeButton({ activeDocId, doc, onSelect }) {
+function ArchiveRecipeButton({ activeDocId, doc, onSelect, readiness }) {
   return (
     <button
       className={`archive-recipe-button ${doc.id === activeDocId ? "active" : ""}`}
@@ -1870,8 +1893,30 @@ function ArchiveRecipeButton({ activeDocId, doc, onSelect }) {
     >
       <span>{doc.title}</span>
       <small>{recipeButtonMeta(doc)}</small>
+      {readiness ? <span className={`recipe-health-badge ${readiness.status}`}>{recipeHealthLabel(readiness.status)}</span> : null}
     </button>
   );
+}
+
+function RecipeHealthCard({ onRepair, readiness }) {
+  if (!readiness) return null;
+  const issues = [...readiness.blockers, ...readiness.warnings];
+  return (
+    <section className={`recipe-health-card ${readiness.status}`} aria-label="Recipe health">
+      <div>
+        <span className={`recipe-health-badge ${readiness.status}`}>{recipeHealthLabel(readiness.status)}</span>
+        <strong>{readiness.ingredientCount} ingredient{readiness.ingredientCount === 1 ? "" : "s"} / {readiness.directionCount} direction{readiness.directionCount === 1 ? "" : "s"}</strong>
+      </div>
+      {issues.length ? <ul>{issues.map((issue) => <li key={issue}>{issue}</li>)}</ul> : <p>This recipe can build grocery lists and guide Cooking mode.</p>}
+      {readiness.status !== "ready" ? <button className="primary-button" onClick={onRepair} type="button">Repair Recipe</button> : null}
+    </section>
+  );
+}
+
+function recipeHealthLabel(status) {
+  if (status === "ready") return "Ready";
+  if (status === "needs-review") return "Needs Review";
+  return "Invalid";
 }
 
 function recipeButtonMeta(doc) {

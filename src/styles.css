@@ -1342,6 +1342,120 @@
   font-weight: 700;
 }
 
+.recipe-health-switch {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.recipe-health-switch button {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  gap: 7px;
+  justify-content: space-between;
+  min-height: 38px;
+  padding: 7px 9px;
+}
+
+.recipe-health-switch button.active {
+  background: #e9f4f1;
+  border-color: #b9d8d0;
+  color: var(--teal-strong);
+}
+
+.recipe-health-switch button span {
+  align-items: center;
+  background: #edf2f1;
+  border-radius: 999px;
+  color: inherit;
+  display: inline-flex;
+  font-size: 11px;
+  height: 24px;
+  justify-content: center;
+  min-width: 24px;
+  padding: 0 7px;
+}
+
+.recipe-health-summary {
+  overflow-wrap: anywhere;
+}
+
+.recipe-health-badge {
+  border-radius: 999px;
+  color: #245c53;
+  font-size: 11px;
+  font-weight: 900;
+  justify-self: start;
+  line-height: 1;
+  padding: 6px 8px;
+}
+
+.recipe-health-badge.ready {
+  background: #e4f5e9;
+  color: #24613b;
+}
+
+.recipe-health-badge.needs-review {
+  background: #fff0c7;
+  color: #74500c;
+}
+
+.recipe-health-badge.invalid {
+  background: #fde3de;
+  color: #8e3325;
+}
+
+.recipe-health-card {
+  background: #f7fbf9;
+  border: 1px solid #b9d8d0;
+  border-radius: 10px;
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px;
+}
+
+.recipe-health-card.needs-review {
+  background: #fffaf0;
+  border-color: #ead7a0;
+}
+
+.recipe-health-card.invalid {
+  background: #fff5f2;
+  border-color: #efbdb3;
+}
+
+.recipe-health-card > div {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.recipe-health-card p,
+.recipe-health-card ul {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0;
+}
+
+.recipe-health-card ul {
+  padding-left: 20px;
+}
+
+.recipe-health-card .primary-button {
+  justify-self: start;
+}
+
 .recipe-picker-search {
   display: grid;
   font-weight: 700;

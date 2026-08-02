@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { analyzeRecipeImport, analyzeRecipeReadiness, recipeBuilderDraftFromText, recipeBuilderDraftToMarkdown } from "../src/domain/recipeImport.js";
+import { analyzeRecipeDocReadiness, analyzeRecipeImport, analyzeRecipeReadiness, recipeBuilderDraftFromText, recipeBuilderDraftToMarkdown, summarizeRecipeHealth } from "../src/domain/recipeImport.js";
 
 test("recognizes canonical recipe Markdown", () => {
   const result = analyzeRecipeImport(`# Lemon Chicken
@@ -116,4 +116,27 @@ test("flags instruction and recipe-title rows in Ingredients", () => {
   assert.equal(readiness.status, "needs-review");
   assert.equal(readiness.ingredientCount, 1);
   assert.equal(readiness.suspiciousIngredientCount, 2);
+});
+
+test("applies recipe readiness rules to saved library documents", () => {
+  const readiness = analyzeRecipeDocReadiness({
+    id: "quick-soup",
+    title: "Quick Soup",
+    markdown: "# Quick Soup\n## Ingredients\n- broth\n## Directions\n1. Simmer until hot.",
+  });
+
+  assert.equal(readiness.status, "needs-review");
+  assert.equal(readiness.doc.id, "quick-soup");
+  assert.match(readiness.warnings.join(" "), /missing a quantity/i);
+});
+
+test("summarizes the existing recipe repair queue", () => {
+  const health = summarizeRecipeHealth([
+    { title: "Ready Soup", markdown: "# Ready Soup\n## Ingredients\n- 2 cups broth\n## Directions\n1. Simmer." },
+    { title: "Draft Soup", markdown: "# Draft Soup\n## Ingredients\n- broth" },
+    { title: "Empty", markdown: "# Empty\n## Ingredients" },
+  ]);
+
+  assert.deepEqual(health.counts, { ready: 1, "needs-review": 1, invalid: 1 });
+  assert.equal(health.attentionCount, 2);
 });

@@ -103,6 +103,32 @@ export function analyzeRecipeReadiness({ draft, title }) {
   };
 }
 
+export function analyzeRecipeDocReadiness(doc) {
+  const markdown = String(doc?.markdown || "");
+  const draft = recipeBuilderDraftFromText(markdown);
+  const markdownTitle = markdown.match(/^\s*#\s+(.+)$/m)?.[1]?.trim() || "";
+  return {
+    doc,
+    ...analyzeRecipeReadiness({
+      draft,
+      title: doc?.title || markdownTitle,
+    }),
+  };
+}
+
+export function summarizeRecipeHealth(docs = []) {
+  const recipes = docs.map(analyzeRecipeDocReadiness);
+  const counts = recipes.reduce((summary, recipe) => {
+    summary[recipe.status] += 1;
+    return summary;
+  }, { ready: 0, "needs-review": 0, invalid: 0 });
+  return {
+    counts,
+    recipes,
+    attentionCount: counts.invalid + counts["needs-review"],
+  };
+}
+
 export function recipeBuilderDraftToMarkdown({ builderDraft, category, status, title }) {
   const ingredients = builderDraft.ingredients.filter((ingredient) => ingredient.item.trim());
   const directions = builderDraft.directions.map((step) => step.trim()).filter(Boolean);
