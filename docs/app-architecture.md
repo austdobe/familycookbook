@@ -29,11 +29,12 @@ The sidebar routes are defined by the `views` array in `src/main.jsx`.
 |---|---|
 | `App` in `src/main.jsx` | App shell, global data loading, topbar actions, Firebase sync. |
 | `WeekView` in `src/main.jsx` | Weekly menu cards, edit mode, drag/drop, week sealing. |
-| `RecipePicker` in `src/main.jsx` | Recipe search, category filters, quick-time filter, drag source. |
-| `GroceryView` in `src/main.jsx` | Grocery snapshot rendering, manual edits, Have It state. |
-| `PrepView` in `src/main.jsx` | Prep checklist rendering and edits. |
+| `RecipePicker` in `src/components/RecipePicker.jsx` | Recipe search, category filters, quick-time filter, drag source. |
+| `GroceryView` in `src/components/GroceryView.jsx` | Grocery snapshot rendering, manual edits, Have It state. |
+| `PrepView` in `src/components/PrepView.jsx` | Prep checklist rendering and edits. |
 | `RecipeFeedbackPanel` in `src/main.jsx` | Cooked count, ratings, notes, promotion controls. |
 | `RecipeImportDialog` in `src/components/RecipeImportDialog.jsx` | Add/edit recipe dialog, OCR import, OCR cleanup. |
+| `cleanRecipeOcrText` in `src/domain/recipeOcr.js` | Shared OCR cleanup and canonical recipe Markdown generation. |
 | `markdownToHtml` in `src/services/markdown.js` | Markdown rendering for app recipe docs. |
 
 ## Service Modules
