@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { RecipeImportDialog } from "./components/RecipeImportDialog.jsx";
-import { recipeMatchesQuery, recipeProtein, recipeStage } from "./domain/recipeDiscovery.js";
+import { CookingViewDialog } from "./components/CookingViewDialog.jsx";
+import { RecipePicker } from "./components/RecipePicker.jsx";
+import { recipeMatchesQuery } from "./domain/recipeDiscovery.js";
 import {
   clearGroceryState,
   deleteGroceryState,
@@ -841,7 +843,15 @@ function WeekView({
           />
         )}
       </section>
-      {cookingDialogOpen && readerDoc ? <CookingViewDialog onClose={() => setCookingDialogOpen(false)} recipe={readerDoc} /> : null}
+      {cookingDialogOpen && readerDoc ? (
+        <CookingViewDialog
+          ingredients={recipeIngredientsForEditing(readerDoc)}
+          onClose={() => setCookingDialogOpen(false)}
+          recipeId={readerDoc.id}
+          steps={cookingStepsForRecipe(readerDoc)}
+          title={readerDoc.title}
+        />
+      ) : null}
       {feedbackDialogOpen && readerDoc ? (
         <div className="dialog-backdrop" role="presentation" onMouseDown={() => setFeedbackDialogOpen(false)}>
           <div
@@ -1639,6 +1649,10 @@ function WeekMealAssignmentPanel({
             <RecipePicker
               actionLabel={mealStyle === "complete" ? "Use for this day" : `Add as ${formatCategoryLabel(componentRole)}`}
               docs={archiveDocs}
+              dragType={RECIPE_DRAG_TYPE}
+              getCategory={recipePickerCategory}
+              getMeta={recipePickerMeta}
+              isQuick={recipeIsUnderThirtyMinutes}
               onChoose={(doc) => onAssignRecipe(doc, { mealStyle, role: mealStyle === "complete" ? "complete" : componentRole })}
               onRecipeDragEnd={onRecipeDragEnd}
               onRecipeDragStart={onRecipeDragStart}
@@ -1696,126 +1710,6 @@ function WeekMealAssignmentPanel({
   );
 }
 
-function RecipePicker({ actionLabel, docs, onChoose, onRecipeDragEnd, onRecipeDragStart }) {
-  const [query, setQuery] = useState("");
-  const [category, setCategory] = useState("all");
-  const [protein, setProtein] = useState("all");
-  const [stage, setStage] = useState("all");
-  const [quickOnly, setQuickOnly] = useState(false);
-  const [draggingRecipeId, setDraggingRecipeId] = useState("");
-  const [addedRecipeId, setAddedRecipeId] = useState("");
-  const categories = useMemo(() => {
-    const values = docs
-      .map((doc) => normalizeRecipeCategory(doc.recipe?.category || pathCategory(doc.path)))
-      .filter(Boolean);
-    return ["all", ...uniqueValues(values).sort()];
-  }, [docs]);
-  const proteins = useMemo(() => ["all", ...uniqueValues(docs.map(recipeProtein).filter(Boolean)).sort()], [docs]);
-  const filteredDocs = useMemo(() => {
-    return docs
-      .filter((doc) => category === "all" || normalizeRecipeCategory(doc.recipe?.category || pathCategory(doc.path)) === category)
-      .filter((doc) => protein === "all" || recipeProtein(doc).toLowerCase() === protein.toLowerCase())
-      .filter((doc) => stage === "all" || recipeStage(doc) === stage)
-      .filter((doc) => !quickOnly || recipeIsUnderThirtyMinutes(doc))
-      .filter((doc) => recipeMatchesQuery(doc, query))
-      .slice(0, 60);
-  }, [category, docs, protein, query, quickOnly, stage]);
-  const hasFilters = Boolean(query.trim() || category !== "all" || protein !== "all" || stage !== "all" || quickOnly);
-
-  const chooseRecipe = async (doc) => {
-    await onChoose(doc);
-    setAddedRecipeId(doc.id);
-  };
-
-  return (
-    <div className="recipe-picker">
-      <label className="recipe-picker-search">
-        Search recipes
-        <input
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search name, ingredient, protein, or flavor"
-          type="search"
-          value={query}
-        />
-      </label>
-      <div className="recipe-picker-filters">
-        <label>
-          Protein
-          <select onChange={(event) => setProtein(event.target.value)} value={protein}>
-            {proteins.map((option) => <option key={option} value={option}>{option === "all" ? "All proteins" : option}</option>)}
-          </select>
-        </label>
-        <label>
-          Recipe status
-          <select onChange={(event) => setStage(event.target.value)} value={stage}>
-            <option value="all">All stages</option>
-            <option value="stage-2">Stage 2 - Promoted</option>
-            <option value="stage-1">Stage 1 - Draft</option>
-          </select>
-        </label>
-      </div>
-      <div className="recipe-picker-categories" aria-label="Recipe categories">
-        <button
-          aria-pressed={quickOnly}
-          className={quickOnly ? "active" : ""}
-          onClick={() => setQuickOnly((current) => !current)}
-          type="button"
-        >
-          Under 30 min
-        </button>
-        {categories.map((option) => (
-          <button
-            aria-pressed={category === option}
-            className={category === option ? "active" : ""}
-            key={option}
-            onClick={() => setCategory(option)}
-            type="button"
-          >
-            {option === "all" ? "All" : formatFolderName(option)}
-          </button>
-        ))}
-      </div>
-      <div className="recipe-picker-results">
-        <span>{filteredDocs.length} of {docs.length} recipes</span>
-        {hasFilters ? (
-          <button className="mini-button" onClick={() => { setQuery(""); setCategory("all"); setProtein("all"); setStage("all"); setQuickOnly(false); }} type="button">Clear filters</button>
-        ) : null}
-      </div>
-      <div className="recipe-picker-list">
-        {filteredDocs.length ? filteredDocs.map((doc) => (
-          <button
-            className={`recipe-picker-item ${draggingRecipeId === doc.id ? "dragging" : ""}`}
-            draggable
-            key={doc.id}
-            onClick={() => chooseRecipe(doc)}
-            onDragEnd={() => {
-              setDraggingRecipeId("");
-              onRecipeDragEnd?.();
-            }}
-            onDragStart={(event) => {
-              event.dataTransfer.effectAllowed = "copy";
-              event.dataTransfer.setData(RECIPE_DRAG_TYPE, doc.id);
-              event.dataTransfer.setData("text/plain", doc.id);
-              setDraggingRecipeId(doc.id);
-              onRecipeDragStart?.(doc);
-            }}
-            title="Drag this recipe onto a week card, or click to set it on the selected card"
-            type="button"
-          >
-            <span className="recipe-picker-item-copy">
-              <span className="recipe-picker-title">{doc.title}</span>
-              <span className="recipe-picker-meta">{recipePickerMeta(doc)}</span>
-            </span>
-            <span className="recipe-picker-add-label">{addedRecipeId === doc.id ? "Added" : actionLabel || "Add"}</span>
-          </button>
-        )) : (
-          <div className="empty recipe-picker-empty">No recipes match that search.</div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function recipePickerMeta(doc) {
   const recipe = doc.recipe || {};
   const category = normalizeRecipeCategory(recipe.category || pathCategory(doc.path));
@@ -1826,6 +1720,10 @@ function recipePickerMeta(doc) {
     recipe.cuisine || recipe.planning?.cuisine || "",
     stageForDoc(doc),
   ].filter(Boolean).slice(0, 3).join(" | ") || "Recipe";
+}
+
+function recipePickerCategory(doc) {
+  return normalizeRecipeCategory(doc.recipe?.category || pathCategory(doc.path));
 }
 
 function recipeTotalMinutes(doc) {
@@ -4033,112 +3931,15 @@ function prepTaskSummary(details) {
   return prepDetailValue(details, "Instructions") || prepDetailValue(details, "Ingredients") || "View details";
 }
 
-function CookingViewDialog({ onClose, recipe }) {
-  const [checkedIngredients, setCheckedIngredients] = useState(() => new Set());
-  const [stepIndex, setStepIndex] = useState(0);
-  const [showAllSteps, setShowAllSteps] = useState(false);
-  const ingredients = useMemo(() => recipeIngredientsForEditing(recipe), [recipe]);
-  const steps = useMemo(() => {
-    const sections = recipe.recipe?.instructionSections?.length
-      ? recipe.recipe.instructionSections
-      : instructionSectionsFromMarkdown(recipe.markdown || "");
-    return sections.flatMap((section) => (section.steps || []).map((step) => ({
-      section: section.title || section.name || "Directions",
-      text: step.text || String(step || ""),
-    }))).filter((step) => step.text);
-  }, [recipe]);
-
-  useEffect(() => {
-    setCheckedIngredients(new Set());
-    setStepIndex(0);
-    setShowAllSteps(false);
-  }, [recipe.id]);
-
-  useEffect(() => {
-    let wakeLock = null;
-    const keepAwake = async () => {
-      try {
-        wakeLock = await navigator.wakeLock?.request("screen");
-      } catch {
-        wakeLock = null;
-      }
-    };
-    keepAwake();
-    return () => wakeLock?.release?.();
-  }, []);
-
-  useEffect(() => {
-    const previousBodyOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const onKeyDown = (event) => {
-      if (event.key === "Escape") onClose();
-      if (event.key === "ArrowRight") setStepIndex((current) => Math.min(current + 1, Math.max(steps.length - 1, 0)));
-      if (event.key === "ArrowLeft") setStepIndex((current) => Math.max(current - 1, 0));
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.body.style.overflow = previousBodyOverflow;
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [onClose, steps.length]);
-
-  return (
-    <div className="cooking-view-backdrop" role="presentation">
-      <section aria-label={`Cook ${recipe.title}`} aria-modal="true" className="cooking-view" role="dialog">
-        <header className="cooking-view-header">
-          <div>
-            <p className="eyebrow">Cooking mode</p>
-            <h2>{recipe.title}</h2>
-          </div>
-          <button aria-label="Close cooking mode" className="cooking-close" onClick={onClose} type="button">Done</button>
-        </header>
-        <div className="cooking-view-layout">
-          <aside className="cooking-ingredients">
-            <div className="cooking-section-heading">
-              <h3>Ingredients</h3>
-              <span>{checkedIngredients.size}/{ingredients.length}</span>
-            </div>
-            <div className="cooking-ingredient-list">
-              {ingredients.map((ingredient, index) => {
-                const key = ingredient.id || `${ingredient.item}-${index}`;
-                const checked = checkedIngredients.has(key);
-                return (
-                  <label className={checked ? "checked" : ""} key={key}>
-                    <input checked={checked} onChange={() => setCheckedIngredients((current) => {
-                      const next = new Set(current);
-                      if (next.has(key)) next.delete(key); else next.add(key);
-                      return next;
-                    })} type="checkbox" />
-                    <span><strong>{ingredient.quantityText}</strong> {ingredient.item}</span>
-                  </label>
-                );
-              })}
-            </div>
-          </aside>
-          <main className="cooking-directions">
-            <div className="cooking-section-heading">
-              <h3>Directions</h3>
-              <button className="quiet-button" onClick={() => setShowAllSteps((current) => !current)} type="button">{showAllSteps ? "One step" : "View all"}</button>
-            </div>
-            {steps.length ? showAllSteps ? (
-              <ol className="cooking-all-steps">{steps.map((step, index) => <li className={index === stepIndex ? "active" : ""} key={`${step.section}-${index}`} onClick={() => { setStepIndex(index); setShowAllSteps(false); }}>{step.text}</li>)}</ol>
-            ) : (
-              <div className="cooking-current-step">
-                <span>Step {stepIndex + 1} of {steps.length}</span>
-                <p>{steps[stepIndex]?.text}</p>
-                <div className="cooking-step-controls">
-                  <button disabled={stepIndex === 0} onClick={() => setStepIndex((current) => Math.max(current - 1, 0))} type="button">Previous</button>
-                  <button disabled={stepIndex === steps.length - 1} onClick={() => setStepIndex((current) => Math.min(current + 1, steps.length - 1))} type="button">Next Step</button>
-                </div>
-              </div>
-            ) : <div className="empty">No directions are attached to this recipe yet.</div>}
-          </main>
-        </div>
-      </section>
-    </div>
-  );
+function cookingStepsForRecipe(recipe) {
+  const sections = recipe.recipe?.instructionSections?.length
+    ? recipe.recipe.instructionSections
+    : instructionSectionsFromMarkdown(recipe.markdown || "");
+  return sections.flatMap((section) => (section.steps || []).map((step) => ({
+    section: section.title || section.name || "Directions",
+    text: step.text || String(step || ""),
+  }))).filter((step) => step.text);
 }
-
 function IngredientDetailToggle({ mode, setMode }) {
   return (
     <div className="segmented-control" aria-label="Ingredient detail level">
