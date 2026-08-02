@@ -11,6 +11,7 @@
     "dev": "node scripts/build-app-data.js && vite --host 0.0.0.0",
     "build": "node scripts/build-app-data.js && vite build",
     "build:pages": "node scripts/build-app-data.js && vite build --base=/familycookbook/",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/*.test.js",
     "preview": "vite preview --host 0.0.0.0",
     "app": "npm run build && vite preview --host 0.0.0.0",
     "deploy:pages": "node scripts/deploy-github-pages.js",

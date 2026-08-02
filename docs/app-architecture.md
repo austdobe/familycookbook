@@ -48,6 +48,8 @@ The sidebar routes are defined by the `views` array in `src/main.jsx`.
 | `src/services/prepStore.js` | Subscribe/save/delete/sync prep snapshots and checked state. |
 | `src/services/recipeFeedbackStore.js` | Subscribe/save recipe feedback. |
 | `src/services/units.js` | Quantity display conversions. |
+| `src/domain/listReconciliation.js` | Stable grocery/prep identities and state-preserving regeneration. |
+| `src/domain/plannedMeals.js` | Complete, composed, hybrid, and legacy meal-component resolution. |
 
 ## Data Flow
 
@@ -58,6 +60,8 @@ The sidebar routes are defined by the `views` array in `src/main.jsx`.
 5. Saving week rows regenerates grocery and prep snapshots.
 6. Grocery/prep edits update the snapshot for that week, not the source recipe.
 7. Sealing a week prevents accidental changes to week rows, grocery, prep, and checklist state.
+
+Generated list rows use semantic identities rather than array positions. When a meal changes, regeneration reconciles the new grocery/prep output with the previous snapshot so unchanged checks and manual grocery rows survive.
 
 ## Grocery Generation Notes
 

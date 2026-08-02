@@ -11,12 +11,14 @@ import {
   toggleGroceryItem,
 } from "./services/groceryStore.js";
 import { markdownToHtml } from "./services/markdown.js";
-import { clearPrepState, deletePrepState, savePrepState, subscribePrepState, syncPrepStateFromFirebase, togglePrepTask } from "./services/prepStore.js";
+import { clearPrepState, deletePrepState, getPrepState, savePrepState, subscribePrepState, syncPrepStateFromFirebase, togglePrepTask } from "./services/prepStore.js";
 import { saveRecipeFeedback, subscribeRecipeFeedback } from "./services/recipeFeedbackStore.js";
 import { saveRecipe, subscribeRecipes, syncRecipesFromFirebase } from "./services/recipeStore.js";
 import { formatQuantity } from "./services/units.js";
 import { deleteWeekPlanState, saveWeekPlanState, subscribeWeekPlanState, syncWeekPlanStateFromFirebase } from "./services/weekPlanStore.js";
 import { deleteWorkingWeek, subscribeWorkingWeeks, syncWorkingWeeksFromFirebase, upsertWeek, upsertWorkingWeek } from "./services/workingWeeksStore.js";
+import { groceryItemStableKey, prepTaskStableKey, reconcileGrocerySnapshot, reconcilePrepCheckedKeys } from "./domain/listReconciliation.js";
+import { resolveMealComponentDocs } from "./domain/plannedMeals.js";
 import "./styles.css";
 
 const views = [
@@ -126,6 +128,7 @@ function App() {
       const nextWeek = await resyncWeekAssets({
         archiveDocs,
         existingGroceryState: await getGroceryState(selectedWeek.id),
+        existingPrepState: await getPrepState(selectedWeek.id),
         week: selectedWeek,
         weekPlanState: selectedWeekPlanState,
       });
@@ -424,7 +427,7 @@ function WeekView({
   const sourceMenuRows = weekPlanState.menuRows?.length ? weekPlanState.menuRows : week.weeklyMenu;
   const plannedMenuRows = sourceMenuRows.filter(hasMeal);
   const menuRows = sourceMenuRows.filter((row) => matchesSearch(Object.values(row).join(" "), search));
-  const allRecipeDocs = [...week.recipes, ...archiveDocs];
+  const allRecipeDocs = mergeArchiveDocs(week.recipes, archiveDocs);
   const missingRecipeSelected = String(activeDocId || "").startsWith("missing-recipe|");
   const selectedRow = sourceMenuRows.find((row) => row.Day === selectedDay)
     || menuRows[0]
@@ -2655,7 +2658,7 @@ function orderedGroceryHeaders(items = []) {
 function addGroceryItemState(currentState, sourceSections, form) {
   const nextSections = cleanGrocerySections(sourceSections);
   const targetSection = ensureGrocerySection(nextSections, form.section || "Other");
-  targetSection.items.push(groceryItemFromForm(form));
+  targetSection.items.push(groceryItemFromForm(form, `manual-${Date.now()}-${Math.random().toString(16).slice(2)}`));
   return {
     ...currentState,
     manualItems: [],
@@ -2672,7 +2675,7 @@ function updateGrocerySectionsState(week, currentState, sourceSections, itemKey,
       if (groceryItemKey(week, section, item, sectionIndex, itemIndex) !== itemKey) {
         return true;
       }
-      editedItem = { ...item, ...groceryItemFromForm(form) };
+      editedItem = { ...item, ...groceryItemFromForm(form, item._manualId) };
       return false;
     });
   });
@@ -2712,17 +2715,18 @@ function cleanGrocerySections(sections = []) {
 
 function cleanGroceryItem(item) {
   return Object.fromEntries(
-    Object.entries(item || {}).filter(([key]) => !key.startsWith("_"))
+    Object.entries(item || {}).filter(([key]) => !key.startsWith("_") || key === "_manualId" || key === "_source")
   );
 }
 
-function groceryItemFromForm(form) {
+function groceryItemFromForm(form, manualId = "") {
   return {
     Quantity: form.quantity || "",
     Item: form.item.trim(),
     "Preferred version/type": form.preferred || "",
     "Acceptable alternatives": form.alternatives || "",
     Recipe: form.recipe || "Manual add",
+    ...(manualId ? { _manualId: manualId, _source: "manual" } : {}),
   };
 }
 
@@ -4046,7 +4050,7 @@ function mergeArchiveDocs(localDocs = [], firebaseDocs = []) {
   return [...docsById.values()].sort((first, second) => first.title.localeCompare(second.title));
 }
 
-async function resyncWeekAssets({ archiveDocs, existingGroceryState = {}, week, weekPlanState = {} }) {
+async function resyncWeekAssets({ archiveDocs, existingGroceryState = {}, existingPrepState = {}, week, weekPlanState = {} }) {
   const menuRows = activeMenuRowsForWeek(week, weekPlanState);
   const allRecipeDocs = mergeArchiveDocs(week.recipes || [], archiveDocs);
   const grocerySections = buildGrocerySectionsFromMenuRows(menuRows, allRecipeDocs);
@@ -4054,6 +4058,8 @@ async function resyncWeekAssets({ archiveDocs, existingGroceryState = {}, week, 
   const groceryItems = flattenGrocerySections(grocerySections);
   const prepTasks = flattenPrepSections(prepSections);
   const generatedAt = new Date().toISOString();
+  const grocerySnapshot = reconcileGrocerySnapshot({ generatedSections: grocerySections, previousState: existingGroceryState, weekId: week.id });
+  const prepCheckedKeys = reconcilePrepCheckedKeys({ generatedSections: prepSections, parseTasks: parsePrepTasks, previousState: existingPrepState, weekId: week.id });
   const nextWeek = {
     ...week,
     groceryItems,
@@ -4069,18 +4075,16 @@ async function resyncWeekAssets({ archiveDocs, existingGroceryState = {}, week, 
 
   await Promise.all([
     saveGroceryState(week.id, {
-      checkedKeys: existingGroceryState.checkedKeys || [],
+      ...grocerySnapshot,
+      generatedAt,
+      generationSource: "firebase-recipes",
+      generationVersion: "app-week-assets-resync-v3",
+    }),
+    savePrepState(week.id, {
+      checkedKeys: prepCheckedKeys,
       generatedAt,
       generationSource: "firebase-recipes",
       generationVersion: "app-week-assets-resync-v2",
-      manualItems: [],
-      sections: grocerySections,
-    }),
-    savePrepState(week.id, {
-      checkedKeys: [],
-      generatedAt,
-      generationSource: "firebase-recipes",
-      generationVersion: "app-week-assets-resync-v1",
       sections: prepSections,
     }),
   ]);
@@ -4127,10 +4131,16 @@ async function saveNewPlanningWeek(weekPlan, onSaveWorkingWeek) {
 }
 
 async function saveWeekMenuRows({ archiveDocs, menuRows, onSaveWorkingWeek, week }) {
+  const [existingGroceryState, existingPrepState] = await Promise.all([
+    getGroceryState(week.id),
+    getPrepState(week.id),
+  ]);
   const allRecipeDocs = mergeArchiveDocs(week.recipes || [], archiveDocs);
   const grocerySections = buildGrocerySectionsFromMenuRows(menuRows, allRecipeDocs);
   const prepSections = buildPrepSectionsFromMenuRows(menuRows, allRecipeDocs);
   const generatedAt = new Date().toISOString();
+  const grocerySnapshot = reconcileGrocerySnapshot({ generatedSections: grocerySections, previousState: existingGroceryState, weekId: week.id });
+  const prepCheckedKeys = reconcilePrepCheckedKeys({ generatedSections: prepSections, parseTasks: parsePrepTasks, previousState: existingPrepState, weekId: week.id });
   const nextWeek = {
     ...week,
     groceryItems: flattenGrocerySections(grocerySections),
@@ -4149,18 +4159,16 @@ async function saveWeekMenuRows({ archiveDocs, menuRows, onSaveWorkingWeek, week
     onSaveWorkingWeek(nextWeek),
     saveWeekPlanState(week.id, { menuRows }),
     saveGroceryState(week.id, {
-      checkedKeys: [],
+      ...grocerySnapshot,
       generatedAt,
       generationSource: "week-planner",
-      generationVersion: "inline-week-planner-v1",
-      manualItems: [],
-      sections: grocerySections,
+      generationVersion: "inline-week-planner-v2",
     }),
     savePrepState(week.id, {
-      checkedKeys: [],
+      checkedKeys: prepCheckedKeys,
       generatedAt,
       generationSource: "week-planner",
-      generationVersion: "inline-week-planner-v1",
+      generationVersion: "inline-week-planner-v2",
       sections: prepSections,
     }),
   ]);
@@ -5704,17 +5712,16 @@ function findRecipeDocForMenuRow(row, docs) {
 }
 
 function recipeDocsForMenuRow(row, docs) {
+  const componentDocs = resolveMealComponentDocs(row, docs);
+  if (componentDocs.length) {
+    return componentDocs;
+  }
   const components = mealComponentsForRow(row);
   if (!components.length) {
     const legacyDoc = findLegacyRecipeDocForMenuRow(row, docs);
     return legacyDoc ? [legacyDoc] : [];
   }
-  const rolePriority = { complete: 0, main: 1, side: 2, sauce: 3, bread: 4, dessert: 5, drink: 6 };
-  return components
-    .map((component, index) => ({ component, index }))
-    .sort((first, second) => (rolePriority[first.component.role] ?? 99) - (rolePriority[second.component.role] ?? 99) || first.index - second.index)
-    .map(({ component }) => docs.find((candidate) => candidate.id === component.recipeId || candidate.recipe?.id === component.recipeId))
-    .filter(Boolean);
+  return [];
 }
 
 function recipePathsForMenuRow(row, docs) {
@@ -5779,15 +5786,7 @@ function recipeStageFromMarkdown(markdown) {
 }
 
 function groceryItemKey(week, section, item, sectionIndex, itemIndex) {
-  return [
-    week.id,
-    sectionIndex,
-    section.title,
-    itemIndex,
-    item.Quantity,
-    item.Item,
-    item.Recipe,
-  ].join("|");
+  return groceryItemStableKey(week.id, section, item);
 }
 
 function groceryFieldClass(header) {
@@ -6426,7 +6425,7 @@ function parsePrepTasks(markdown) {
 }
 
 function prepTaskKey(week, section, task) {
-  return [week.id, section.title, task.index, task.title].join("|");
+  return prepTaskStableKey(week.id, section, task);
 }
 
 function buildArchiveDirectories(docs) {

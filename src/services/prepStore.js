@@ -1,5 +1,6 @@
 import { deleteDoc, doc, getDoc, onSnapshot, setDoc } from "firebase/firestore";
 import { firebaseIsConfigured, getFirebaseClient } from "./firebase.js";
+import { parsePrepTasksForIdentity, reconcilePrepCheckedKeys } from "../domain/listReconciliation.js";
 
 const householdId = import.meta.env.VITE_FIREBASE_HOUSEHOLD_ID || "family";
 
@@ -13,7 +14,7 @@ function storageKey(weekId) {
 
 function readLocalState(weekId) {
   try {
-    return { ...emptyState(), ...JSON.parse(localStorage.getItem(storageKey(weekId)) || "{}") };
+    return normalizeCheckedKeys(weekId, { ...emptyState(), ...JSON.parse(localStorage.getItem(storageKey(weekId)) || "{}") });
   } catch {
     return emptyState();
   }
@@ -55,7 +56,7 @@ export function subscribePrepState(weekId, callback) {
       }
 
       unsubscribeFirebase = onSnapshot(stateRef, (snapshot) => {
-        const nextState = { ...emptyState(), ...(snapshot.exists() ? snapshot.data() : {}) };
+        const nextState = normalizeCheckedKeys(weekId, { ...emptyState(), ...(snapshot.exists() ? snapshot.data() : {}) });
         mirrorLocalState(weekId, nextState);
         callback(nextState);
       }, () => {
@@ -137,4 +138,21 @@ export async function togglePrepTask(weekId, taskKey, checked) {
 export async function clearPrepState(weekId) {
   const current = readLocalState(weekId);
   await savePrepState(weekId, { ...current, checkedKeys: [] });
+}
+
+export async function getPrepState(weekId) {
+  return readLocalState(weekId);
+}
+
+function normalizeCheckedKeys(weekId, state) {
+  if (!state.sections?.length || !state.checkedKeys?.length) return state;
+  return {
+    ...state,
+    checkedKeys: reconcilePrepCheckedKeys({
+      generatedSections: state.sections,
+      parseTasks: parsePrepTasksForIdentity,
+      previousState: state,
+      weekId,
+    }),
+  };
 }

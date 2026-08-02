@@ -20,6 +20,12 @@ Build production assets:
 npm.cmd run build
 ```
 
+Run automated regression tests:
+
+```text
+npm.cmd test
+```
+
 Preview a production build:
 
 ```text
