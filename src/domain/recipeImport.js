@@ -70,7 +70,10 @@ export function analyzeRecipeReadiness({ draft, title }) {
   ));
   const usableIngredients = ingredients.filter((ingredient) => !suspiciousIngredients.includes(ingredient));
   const missingQuantityCount = usableIngredients.filter((ingredient) => (
-    !ingredient.quantity.trim() && !/\b(?:to taste|as needed|pinch|dash)\b/i.test(ingredient.item)
+    !ingredient.quantity.trim()
+    && !/\b(?:to taste|as needed|pinch|dash|optional)\b/i.test(`${ingredient.item} ${ingredient.notes || ""}`)
+    && !/^(?:salt|pepper|black pepper|salt\s*(?:&|and)\s*pepper)$/i.test(ingredient.item.trim())
+    && !/^(?:juice|zest)\s+of\s+\d+/i.test(ingredient.item.trim())
   )).length;
   const blockers = [];
   const warnings = [];
@@ -175,19 +178,33 @@ function plainIngredientRows(markdown) {
   const start = lines.findIndex((line) => /^#{0,6}\s*ingredients\s*:?\s*$/i.test(line.trim()));
   if (start === -1) return [];
   const rows = [];
+  let optionalSection = false;
   for (let index = start + 1; index < lines.length; index += 1) {
     const line = lines[index].replace(/^\s*[-*+]\s+/, "").trim();
     if (!line) continue;
     if (/^#{1,2}\s+/.test(line) || /^(?:#{0,6}\s*)?(?:(?:basic|detailed)\s+)?(?:directions?|instructions?|method|preparation|steps)\s*:?\s*$/i.test(line)) break;
-    const match = line.match(/^((?:\d+\s+)?[¼½¾⅓⅔⅛⅜⅝⅞]|\d+(?:\.\d+|\/\d+)?(?:\s*[–-]\s*\d+(?:\.\d+|\/\d+)?)?|pinch|dash|to taste|as needed)\s+(.+)$/i);
+    if (isOptionalPlainIngredientSubheading(line)) {
+      optionalSection = true;
+      continue;
+    }
+    if (isPlainIngredientSubheading(line) || /^\([^)]*[.!?]\)?$/.test(line)) continue;
+    const match = line.match(/^(\d+\s+\d+\/\d+|(?:\d+\s*)?[¼½¾⅓⅔⅛⅜⅝⅞]|\d+(?:\.\d+|\/\d+)?(?:\s*[–-]\s*\d+(?:\.\d+|\/\d+)?)?|(?:small|large)?\s*pinch|dash|to taste|as needed)\s+(.+)$/i);
     if (!match) {
-      rows.push({ ...emptyBuilderIngredient(), item: line });
+      rows.push({ ...emptyBuilderIngredient(), item: line, notes: optionalSection ? "Optional" : "" });
       continue;
     }
     const unitMatch = match[2].match(/^((?:cups?|tbsp|tablespoons?|tsp|teaspoons?|lb|lbs|oz|ounces?|cloves?|cans?|packages?|packets?|bunches?|grams?|g|kg|ml|liters?))\s+(.+)$/i);
-    rows.push({ ...emptyBuilderIngredient(), quantity: unitMatch ? `${match[1]} ${unitMatch[1]}` : match[1], item: unitMatch ? unitMatch[2] : match[2] });
+    rows.push({ ...emptyBuilderIngredient(), quantity: unitMatch ? `${match[1]} ${unitMatch[1]}` : match[1], item: unitMatch ? unitMatch[2] : match[2], notes: optionalSection ? "Optional" : "" });
   }
   return rows;
+}
+
+function isOptionalPlainIngredientSubheading(line) {
+  return /^(?:optional|garnish\s*\(optional\))\s*:?$/i.test(line.trim());
+}
+
+function isPlainIngredientSubheading(line) {
+  return /^(?:pasta|chicken|beef|pork|shrimp|fish|vegetables?|sauce|dressing|dry rub|glaze|fresh peach bbq glaze|finish|rice|toppings?|for serving|serve with)\s*:?$/i.test(line.trim());
 }
 
 function sectionText(markdown, heading) {

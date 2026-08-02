@@ -140,3 +140,52 @@ test("summarizes the existing recipe repair queue", () => {
   assert.deepEqual(health.counts, { ready: 1, "needs-review": 1, invalid: 1 });
   assert.equal(health.attentionCount, 2);
 });
+
+test("plain recipe subsection labels and explanatory notes do not become ingredients", () => {
+  const draft = recipeBuilderDraftFromText(`# Thai Basil Chicken
+Ingredients
+Chicken
+1 1/2 lb chicken thighs
+Vegetables
+1 bell pepper
+Sauce
+3 tbsp soy sauce
+Finish
+1 cup Thai basil
+(Sweet basil works if Thai basil is not available.)
+Rice
+2 cups jasmine rice
+Directions
+Cook the chicken and vegetables.
+Add the sauce and basil.
+Serve over rice.`);
+
+  assert.deepEqual(draft.ingredients.map((ingredient) => ingredient.item), [
+    "chicken thighs",
+    "bell pepper",
+    "soy sauce",
+    "Thai basil",
+    "jasmine rice",
+  ]);
+  assert.equal(analyzeRecipeReadiness({ draft, title: "Thai Basil Chicken" }).status, "ready");
+});
+
+test("plain recipe parsing preserves mixed fractions and optional subsection context", () => {
+  const draft = recipeBuilderDraftFromText(`# Grilled Chicken
+Ingredients
+Chicken
+1½ lb chicken thighs
+Sauce
+1 1/2 cups broth
+Optional:
+Cayenne
+Fresh parsley
+Directions
+Cook until done.`);
+
+  assert.equal(draft.ingredients[0].quantity, "1½ lb");
+  assert.equal(draft.ingredients[0].item, "chicken thighs");
+  assert.equal(draft.ingredients[1].quantity, "1 1/2 cups");
+  assert.equal(draft.ingredients[2].notes, "Optional");
+  assert.equal(analyzeRecipeReadiness({ draft, title: "Grilled Chicken" }).status, "ready");
+});
