@@ -215,11 +215,11 @@ function PrepSection({ checkedKeys, isSealed = false, onEdit, onRemove, onToggle
                 type="checkbox"
               />
               <span className="prep-task-body">
-                <span className="prep-task-title">{task.title}</span>
+                <span className="prep-task-title">{prepTaskTitleForDisplay(task.title)}</span>
                 {task.details ? (
                   <details className="prep-task-detail">
                     <summary>{prepTaskSummary(task.details)}</summary>
-                    <span dangerouslySetInnerHTML={{ __html: markdownToHtml(task.details) }} />
+                    <span dangerouslySetInnerHTML={{ __html: markdownToHtml(prepTaskDetailsForDisplay(task.details)) }} />
                   </details>
                 ) : null}
               </span>
@@ -357,7 +357,16 @@ function emptyPrepForm(section = "Sunday Prep") {
 }
 
 function prepTaskSummary(details) {
-  return prepDetailValue(details, "Instructions") || prepDetailValue(details, "Ingredients") || "View details";
+  const summary = prepDetailValue(details, "Instructions") || prepDetailValue(details, "Ingredients") || "View details";
+  return summary.replace(/\.{2,}$/, ".");
+}
+
+function prepTaskTitleForDisplay(value) {
+  return String(value || "").replace(/\.+$/, "");
+}
+
+function prepTaskDetailsForDisplay(value) {
+  return String(value || "").replace(/\.{2,}(?=\s*$)/gm, ".");
 }
 
 function prepTaskKey(week, section, task) {

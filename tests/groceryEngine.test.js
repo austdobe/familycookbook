@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   grocerySectionForItem,
+  isLikelyNonIngredientRow,
   mergeGroceryItems,
   parseQuantityParts,
 } from "../src/domain/groceryEngine.js";
@@ -11,6 +12,14 @@ test("assigns practical grocery departments", () => {
   assert.equal(grocerySectionForItem("boneless chicken thighs"), "Meat and Seafood");
   assert.equal(grocerySectionForItem("fresh cilantro"), "Produce");
   assert.equal(grocerySectionForItem("ground cumin"), "Sauces, Condiments, and Spices");
+});
+
+test("rejects leaked instruction and recipe-title rows without dropping ordinary ingredients", () => {
+  assert.equal(isLikelyNonIngredientRow("pat chicken dry", "1", "Dry Rub Grilled Chicken"), true);
+  assert.equal(isLikelyNonIngredientRow("cut potatoes in half", "1", "Cast Iron Grilled Potatoes"), true);
+  assert.equal(isLikelyNonIngredientRow("cast iron grilled potatoes", "", "Cast Iron Grilled Potatoes"), true);
+  assert.equal(isLikelyNonIngredientRow("boneless chicken thighs", "", "Lemon Chicken"), false);
+  assert.equal(isLikelyNonIngredientRow("fresh parsley", "", "Lemon Chicken"), false);
 });
 
 test("merges recipe quantities into practical shopping units", () => {

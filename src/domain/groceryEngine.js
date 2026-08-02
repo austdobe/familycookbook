@@ -4,7 +4,7 @@ export function buildGrocerySectionsFromMenuRows(menuRows, archiveDocs, ingredie
   const grouped = new Map();
   collectPlannedMealIngredients(menuRows, archiveDocs, ingredientRowsForDoc).forEach(({ doc, ingredient: ingredientRow }) => {
     const item = ingredientRow.Ingredient || ingredientRow.Item || "";
-    if (!item) {
+    if (!item || isLikelyNonIngredientRow(item, ingredientRow.Quantity, doc.title)) {
       return;
     }
     const sectionTitle = grocerySectionForItem(item);
@@ -24,6 +24,31 @@ export function buildGrocerySectionsFromMenuRows(menuRows, archiveDocs, ingredie
   return [...grouped.values()]
     .map((section) => ({ ...section, items: sortGroceryItems(mergeGroceryItems(section.items)) }))
     .sort((first, second) => grocerySectionSortIndex(first.title) - grocerySectionSortIndex(second.title));
+}
+
+export function isLikelyNonIngredientRow(item, quantity = "", recipeTitle = "") {
+  const normalizedItem = normalizeGroceryItemName(item);
+  if (!normalizedItem) {
+    return true;
+  }
+  const firstWord = normalizedItem.split(" ")[0];
+  const instructionVerbs = new Set([
+    "add", "assemble", "bake", "boil", "brush", "cook", "cut", "finish", "fold",
+    "grill", "heat", "marinate", "mash", "mix", "pat", "peel", "place", "preheat",
+    "remove", "roast", "season", "serve", "simmer", "sprinkle", "stir", "toss", "whisk",
+  ]);
+  if (instructionVerbs.has(firstWord)) {
+    return true;
+  }
+
+  if (!String(quantity || "").trim()) {
+    const itemWords = groceryItemWords(item).filter((word) => word.length > 2);
+    const titleWords = new Set(groceryItemWords(recipeTitle));
+    if (itemWords.length >= 2 && itemWords.every((word) => titleWords.has(word))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function mergeGroceryItems(items) {
