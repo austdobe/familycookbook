@@ -1,4 +1,11 @@
 import React, { useEffect, useId, useMemo, useState } from "react";
+import {
+  analyzeRecipeImport,
+  emptyBuilderIngredient,
+  emptyRecipeBuilderDraft,
+  recipeBuilderDraftFromText,
+  recipeBuilderDraftToMarkdown,
+} from "../domain/recipeImport.js";
 
 const baseUrl = import.meta.env.BASE_URL;
 
@@ -18,7 +25,8 @@ export function RecipeImportDialog({
   const [editingRecipe, setEditingRecipe] = useState(null);
   const [ocrStatus, setOcrStatus] = useState("");
   const [imagePreviewUrl, setImagePreviewUrl] = useState("");
-  const [editorTab, setEditorTab] = useState("builder");
+  const [editorTab, setEditorTab] = useState("import");
+  const [importAnalysis, setImportAnalysis] = useState(null);
   const [builderDraft, setBuilderDraft] = useState(() => emptyRecipeBuilderDraft());
   const categoryOptions = useMemo(() => recipeCategoryOptions(archiveDocs), [archiveDocs]);
   const dialogOpen = Boolean(dialogMode);
@@ -32,7 +40,8 @@ export function RecipeImportDialog({
     setEditingRecipe(null);
     setOcrStatus("");
     setSaveStatus("");
-    setEditorTab("builder");
+    setEditorTab("import");
+    setImportAnalysis(null);
     setBuilderDraft(emptyRecipeBuilderDraft());
     if (imagePreviewUrl) {
       URL.revokeObjectURL(imagePreviewUrl);
@@ -57,6 +66,7 @@ export function RecipeImportDialog({
       setStatus(recipeStatus);
       setRecipeText(selectedRecipe.markdown || "");
       setEditorTab("builder");
+      setImportAnalysis(null);
       setBuilderDraft(recipeBuilderDraftFromDoc(selectedRecipe));
       setOcrStatus("");
       setImagePreviewUrl("");
@@ -124,8 +134,8 @@ export function RecipeImportDialog({
       }
       const cleanedText = cleanRecipeOcrText(extractedText);
       updateRecipeText([recipeText, cleanedText].filter((part) => part.trim()).join("\n\n"));
-      setEditorTab("markdown");
-      setOcrStatus("Image text cleaned and added. Review and edit before saving.");
+      setEditorTab("import");
+      setOcrStatus("Image text cleaned and added. Review what was recognized next.");
     } catch (error) {
       setOcrStatus(error.message);
     }
@@ -139,19 +149,40 @@ export function RecipeImportDialog({
 
   const openBuilderTab = () => {
     if (recipeText.trim()) {
-      setBuilderDraft(recipeBuilderDraftFromText(recipeText, builderDraft));
+      const analysis = analyzeRecipeImport(recipeText);
+      setBuilderDraft(analysis.draft);
+      setImportAnalysis(analysis);
     }
     setEditorTab("builder");
   };
 
+  const reviewImportedRecipe = () => {
+    if (!recipeText.trim()) {
+      setSaveStatus("Paste a recipe or choose a photo first.");
+      return;
+    }
+    const analysis = analyzeRecipeImport(recipeText);
+    setBuilderDraft(analysis.draft);
+    setImportAnalysis(analysis);
+    if (!title.trim() && analysis.title) setTitle(analysis.title);
+    setSaveStatus(analysis.ready ? "Recipe recognized. Review the fields before saving." : analysis.warnings[0]);
+    setEditorTab("builder");
+  };
+
   const openMarkdownTab = () => {
-    setRecipeText(recipeBuilderDraftToMarkdown({ builderDraft, category, status, title }));
+    if (editorTab === "builder") {
+      setRecipeText(recipeBuilderDraftToMarkdown({ builderDraft, category, status, title }));
+    }
     setEditorTab("markdown");
   };
 
 
   const saveImportedRecipe = async (event) => {
     event.preventDefault();
+    if (editorTab === "import") {
+      reviewImportedRecipe();
+      return;
+    }
     const markdownToSave = editorTab === "builder"
       ? recipeBuilderDraftToMarkdown({ builderDraft, category, status, title })
       : recipeText;
@@ -163,6 +194,11 @@ export function RecipeImportDialog({
 
     if (editorTab === "builder" && !builderDraft.ingredients.some((ingredient) => ingredient.item.trim())) {
       setSaveStatus("Add at least one ingredient before saving.");
+      return;
+    }
+
+    if (editorTab === "markdown" && !analyzeRecipeImport(markdownToSave).ingredientCount) {
+      setSaveStatus("Add a recognizable Ingredients section before saving.");
       return;
     }
 
@@ -199,7 +235,7 @@ export function RecipeImportDialog({
         <div className="dialog-header">
           <div>
             <h3>{editingRecipe ? "Edit Recipe" : "Add Recipe"}</h3>
-            <p className="dialog-help">Build the recipe from text or a photo, then make any edits before saving.</p>
+            <p className="dialog-help">Paste a recipe or choose a photo, review what was recognized, then save.</p>
           </div>
           <button
             aria-label="Close dialog"
@@ -215,7 +251,7 @@ export function RecipeImportDialog({
             <label className="recipe-title-field">
               Title
               <input
-                autoFocus
+                autoFocus={Boolean(editingRecipe)}
                 onChange={(event) => setTitle(event.target.value)}
                 placeholder="Jamaican Jerk Chicken"
                 value={title}
@@ -244,13 +280,22 @@ export function RecipeImportDialog({
 
           <div className="recipe-editor-tabs" role="tablist" aria-label="Recipe editor mode">
             <button
+              aria-selected={editorTab === "import"}
+              className={editorTab === "import" ? "active" : ""}
+              onClick={() => setEditorTab("import")}
+              role="tab"
+              type="button"
+            >
+              Paste / Import
+            </button>
+            <button
               aria-selected={editorTab === "builder"}
               className={editorTab === "builder" ? "active" : ""}
               onClick={openBuilderTab}
               role="tab"
               type="button"
             >
-              Recipe Builder
+              Review Recipe
             </button>
             <button
               aria-selected={editorTab === "markdown"}
@@ -259,12 +304,42 @@ export function RecipeImportDialog({
               role="tab"
               type="button"
             >
-              Full Markdown
+              Markdown
             </button>
           </div>
 
-          {editorTab === "builder" ? (
+          {editorTab === "import" ? (
+            <div className="recipe-markdown-editor" role="tabpanel">
+              <div className="recipe-source-panel">
+                <div>
+                  <h4>Paste or photograph a recipe</h4>
+                  <p>Markdown works best, but ordinary Ingredients and Directions sections are recognized too.</p>
+                </div>
+                <div className="recipe-source-actions">
+                  <label className="quiet-button recipe-file-button" htmlFor={imageInputId}>Choose Photo</label>
+                  <input accept="image/*" capture="environment" className="recipe-file-input" id={imageInputId} onChange={importRecipeImage} type="file" />
+                  <button className="quiet-button" disabled={!recipeText.trim()} onClick={cleanCurrentRecipeText} type="button">Clean Text</button>
+                </div>
+                {(imagePreviewUrl || ocrStatus) ? (
+                  <div className="recipe-source-feedback">
+                    {imagePreviewUrl ? <img className="recipe-image-preview" src={imagePreviewUrl} alt="Imported recipe" /> : null}
+                    {ocrStatus ? <span className="pill">{ocrStatus}</span> : null}
+                  </div>
+                ) : null}
+              </div>
+              <label className="recipe-text-field">
+                Recipe text
+                <textarea autoFocus={!editingRecipe} onChange={(event) => updateRecipeText(event.target.value)} placeholder={"# Recipe name\n\nIngredients\n- 1 lb chicken\n\nDirections\n1. Heat the oven..."} rows="18" value={recipeText} />
+              </label>
+            </div>
+          ) : editorTab === "builder" ? (
             <div className="recipe-builder" role="tabpanel">
+              {importAnalysis ? (
+                <div className={`recipe-import-summary ${importAnalysis.ready ? "ready" : "needs-review"}`}>
+                  <strong>Recognized {importAnalysis.ingredientCount} ingredients and {importAnalysis.directionCount} directions.</strong>
+                  {importAnalysis.warnings.length ? <ul>{importAnalysis.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul> : <span>Everything needed for the grocery list was found.</span>}
+                </div>
+              ) : null}
               <section className="recipe-builder-section">
                 <h4>Planning Details</h4>
                 <div className="recipe-builder-planning-grid">
@@ -406,23 +481,6 @@ export function RecipeImportDialog({
             </div>
           ) : (
             <div className="recipe-markdown-editor" role="tabpanel">
-              <div className="recipe-source-panel">
-                <div>
-                  <h4>Recipe Source</h4>
-                  <p>Paste full Markdown or attach a recipe photo, then convert it to the Builder for review.</p>
-                </div>
-                <div className="recipe-source-actions">
-                  <label className="quiet-button recipe-file-button" htmlFor={imageInputId}>Choose Photo</label>
-                  <input accept="image/*" capture="environment" className="recipe-file-input" id={imageInputId} onChange={importRecipeImage} type="file" />
-                  <button className="quiet-button" disabled={!recipeText.trim()} onClick={cleanCurrentRecipeText} type="button">Clean Text</button>
-                </div>
-                {(imagePreviewUrl || ocrStatus) ? (
-                  <div className="recipe-source-feedback">
-                    {imagePreviewUrl ? <img className="recipe-image-preview" src={imagePreviewUrl} alt="Imported recipe" /> : null}
-                    {ocrStatus ? <span className="pill">{ocrStatus}</span> : null}
-                  </div>
-                ) : null}
-              </div>
               <label className="recipe-text-field">
                 Full Markdown
                 <textarea onChange={(event) => updateRecipeText(event.target.value)} placeholder="# Jamaican Jerk Chicken..." rows="18" value={recipeText} />
@@ -433,29 +491,11 @@ export function RecipeImportDialog({
         <div className="dialog-actions recipe-intake-actions">
           {saveStatus ? <span className="pill">{saveStatus}</span> : null}
           <button className="quiet-button" onClick={closeDialog} type="button">Cancel</button>
-          <button className="primary-button" type="submit">{editingRecipe ? "Save Recipe Edits" : "Save Recipe"}</button>
+          <button className="primary-button" type="submit">{editorTab === "import" ? "Review Parsed Recipe" : editingRecipe ? "Save Recipe Edits" : "Save Recipe"}</button>
         </div>
       </form>
     </div>
   );
-}
-
-function emptyBuilderIngredient() {
-  return { quantity: "", item: "", preferred: "", alternatives: "", notes: "" };
-}
-
-function emptyRecipeBuilderDraft() {
-  return {
-    servings: "",
-    prepTime: "",
-    cookTime: "",
-    protein: "",
-    cuisine: "",
-    equipment: "",
-    ingredients: [emptyBuilderIngredient()],
-    directions: [""],
-    notes: "",
-  };
 }
 
 function recipeBuilderDraftFromDoc(doc) {
@@ -483,165 +523,6 @@ function recipeBuilderDraftFromDoc(doc) {
     ingredients: ingredients.length ? ingredients : fromText.ingredients,
     directions: directions.length ? directions : fromText.directions,
   };
-}
-
-function recipeBuilderDraftFromText(markdown, fallback = emptyRecipeBuilderDraft()) {
-  const text = String(markdown || "").replace(/\r\n/g, "\n");
-  const planning = builderLabeledValues(builderSectionText(text, "Planning Summary"));
-  const tableIngredients = builderIngredientTableRows(text);
-  const plainIngredients = tableIngredients.length ? [] : builderPlainIngredientRows(text);
-  const ingredients = (tableIngredients.length ? tableIngredients : plainIngredients);
-  const equipment = builderSectionLines(text, "Equipment", ["Ingredients"]);
-  const directions = builderNumberedSteps(text, ["Basic Instructions", "Detailed Instructions", "Directions", "Instructions"]);
-  const notes = builderSectionLines(text, "Notes", []).map((line) => line.replace(/^[-*+]\s+/, ""));
-  return {
-    servings: planning.Servings || builderTopValue(text, "Servings") || fallback.servings,
-    prepTime: planning["Estimated prep time"] || builderTopValue(text, "Prep Time") || fallback.prepTime,
-    cookTime: planning["Estimated cook time"] || builderTopValue(text, "Cook Time") || fallback.cookTime,
-    protein: planning.Protein || fallback.protein,
-    cuisine: planning["Cuisine or flavor direction"] || fallback.cuisine,
-    equipment: equipment.length ? equipment.join("\n") : fallback.equipment,
-    ingredients: ingredients.length ? ingredients : fallback.ingredients,
-    directions: directions.length ? directions : fallback.directions,
-    notes: notes.length ? notes.join("\n") : fallback.notes,
-  };
-}
-
-function recipeBuilderDraftToMarkdown({ builderDraft, category, status, title }) {
-  const ingredients = builderDraft.ingredients.filter((ingredient) => ingredient.item.trim());
-  const directions = builderDraft.directions.map((step) => step.trim()).filter(Boolean);
-  const equipment = builderDraft.equipment.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
-  const notes = builderDraft.notes.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
-  return [
-    `# ${title.trim() || "Untitled Recipe"}`,
-    `Status: ${status === "stage-2" ? "Stage 2 - Promoted family recipe" : "Stage 1 - Draft / testing"}`,
-    `Category: ${formatCategoryLabel(category)}`,
-    "## Planning Summary",
-    builderLabeledBullet("Servings", builderDraft.servings),
-    builderLabeledBullet("Estimated prep time", builderDraft.prepTime),
-    builderLabeledBullet("Estimated cook time", builderDraft.cookTime),
-    builderLabeledBullet("Protein", builderDraft.protein),
-    builderLabeledBullet("Cuisine or flavor direction", builderDraft.cuisine),
-    "## Equipment",
-    ...(equipment.length ? equipment.map((item) => `- ${item}`) : ["- Review and add equipment"]),
-    "## Ingredients",
-    "| Quantity | Ingredient | Preferred version/type | Acceptable alternatives | Notes |",
-    "|---|---|---|---|---|",
-    ...ingredients.map((ingredient) => `| ${[
-      ingredient.quantity,
-      ingredient.item,
-      ingredient.preferred,
-      ingredient.alternatives,
-      ingredient.notes,
-    ].map(builderEscapeTableCell).join(" | ")} |`),
-    "## Basic Instructions",
-    ...(directions.length ? directions.map((step, index) => `${index + 1}. ${step}`) : ["1. Review and add instructions."]),
-    "## Notes",
-    ...(notes.length ? notes.map((note) => `- ${note}`) : ["- Stage 1 draft; review after cooking."]),
-  ].filter((line) => line !== "").join("\n");
-}
-
-function builderIngredientTableRows(markdown) {
-  const section = builderSectionText(markdown, "Ingredients");
-  const lines = section.split("\n");
-  const headerIndex = lines.findIndex((line, index) => /\|/.test(line) && /^\s*\|?\s*:?-{3,}/.test(lines[index + 1] || ""));
-  if (headerIndex === -1) return [];
-  const headers = builderSplitTableRow(lines[headerIndex]).map((header) => header.toLowerCase());
-  return lines.slice(headerIndex + 2)
-    .filter((line) => line.includes("|"))
-    .map((line) => {
-      const values = builderSplitTableRow(line);
-      const value = (name) => values[headers.findIndex((header) => header.includes(name))] || "";
-      return {
-        quantity: value("quantity"),
-        item: value("ingredient") || value("item"),
-        preferred: value("preferred"),
-        alternatives: value("alternative"),
-        notes: value("notes"),
-      };
-    })
-    .filter((ingredient) => ingredient.item);
-}
-
-function builderPlainIngredientRows(markdown) {
-  const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
-  const start = lines.findIndex((line) => /^#{0,6}\s*ingredients\s*:?\s*$/i.test(line.trim()));
-  if (start === -1) return [];
-  const rows = [];
-  for (let index = start + 1; index < lines.length; index += 1) {
-    const line = lines[index].replace(/^\s*[-*+]\s+/, "").trim();
-    if (!line) continue;
-    if (/^(?:#{0,6}\s*)?(?:directions?|instructions?|method|preparation|steps)\s*:?\s*$/i.test(line)) break;
-    const match = line.match(/^((?:\d+\s+)?[¼½¾⅓⅔⅛⅜⅝⅞]|\d+(?:\.\d+|\/\d+)?(?:\s*[–-]\s*\d+(?:\.\d+|\/\d+)?)?|pinch|dash|to taste|as needed)\s+(.+)$/i);
-    if (!match) continue;
-    const unitMatch = match[2].match(/^((?:cups?|tbsp|tablespoons?|tsp|teaspoons?|lb|lbs|oz|ounces?|cloves?|cans?|packages?|packets?|bunches?))\s+(.+)$/i);
-    rows.push({
-      quantity: unitMatch ? `${match[1]} ${unitMatch[1]}` : match[1],
-      item: unitMatch ? unitMatch[2] : match[2],
-      preferred: "",
-      alternatives: "",
-      notes: "",
-    });
-  }
-  return rows;
-}
-
-function builderSectionText(markdown, heading) {
-  const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
-  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const start = lines.findIndex((line) => new RegExp(`^##\\s+${escaped}\\s*$`, "i").test(line.trim()));
-  if (start === -1) return "";
-  let end = lines.length;
-  for (let index = start + 1; index < lines.length; index += 1) {
-    if (/^##\s+/.test(lines[index].trim())) { end = index; break; }
-  }
-  return lines.slice(start + 1, end).join("\n").trim();
-}
-
-function builderSectionLines(markdown, heading, endHeadings) {
-  const canonical = builderSectionText(markdown, heading);
-  if (canonical) return canonical.split("\n").map((line) => line.replace(/^[-*+]\s+/, "").trim()).filter(Boolean);
-  const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
-  const start = lines.findIndex((line) => new RegExp(`^${heading}\\s*:?$`, "i").test(line.trim()));
-  if (start === -1) return [];
-  const result = [];
-  for (let index = start + 1; index < lines.length; index += 1) {
-    const line = lines[index].trim();
-    if (endHeadings.some((end) => new RegExp(`^${end}\\s*:?$`, "i").test(line))) break;
-    if (line) result.push(line.replace(/^[-*+]\s+/, ""));
-  }
-  return result;
-}
-
-function builderNumberedSteps(markdown, headings) {
-  for (const heading of headings) {
-    const section = builderSectionText(markdown, heading);
-    const source = section || (new RegExp(`^${heading}$`, "im").test(markdown) ? markdown.split(new RegExp(`^${heading}\\s*$`, "im"))[1] || "" : "");
-    const matches = [...source.matchAll(/^\s*\d+\.\s+(.+)$/gm)].map((match) => match[1].trim());
-    if (matches.length) return matches;
-  }
-  return [];
-}
-
-function builderLabeledValues(section) {
-  return Object.fromEntries(section.split("\n").map((line) => line.match(/^[-*+]\s+([^:]+):\s*(.+)$/)).filter(Boolean).map((match) => [match[1].trim(), match[2].trim()]));
-}
-
-function builderTopValue(markdown, label) {
-  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return String(markdown || "").match(new RegExp(`^${escaped}:\\s*(.+)$`, "im"))?.[1]?.trim() || "";
-}
-
-function builderLabeledBullet(label, value) {
-  return value ? `- ${label}: ${value}` : "";
-}
-
-function builderSplitTableRow(line) {
-  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
-}
-
-function builderEscapeTableCell(value) {
-  return String(value || "").replace(/\|/g, "\\|").trim();
 }
 
 async function readTextFromRecipeImage(file, onProgress = () => {}) {

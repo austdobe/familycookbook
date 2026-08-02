@@ -371,6 +371,26 @@
   gap: 14px;
 }
 
+.recipe-import-summary {
+  background: #f6faf7;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
+  border-radius: 10px;
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+}
+
+.recipe-import-summary.needs-review {
+  background: #fff8eb;
+  border-left-color: #c77800;
+}
+
+.recipe-import-summary ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
 .recipe-builder-section {
   background: #f8faf9;
   border: 1px solid var(--line);
