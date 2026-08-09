@@ -46,7 +46,7 @@ export function reconcileGrocerySnapshot({ generatedSections = [], previousState
   };
 }
 
-export function reconcilePrepCheckedKeys({ generatedSections = [], parseTasks, previousState = {}, weekId }) {
+export function reconcilePrepCheckedKeys({ generatedSections = [], parseTasks = parsePrepTasksForIdentity, previousState = {}, weekId }) {
   const checkedIdentities = new Set();
   (previousState.sections || []).forEach((section) => {
     (parseTasks(section.markdown) || []).forEach((task) => {

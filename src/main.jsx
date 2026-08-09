@@ -2042,7 +2042,7 @@ async function resyncWeekAssets({ archiveDocs, existingGroceryState = {}, existi
   const prepTasks = flattenPrepSections(prepSections);
   const generatedAt = new Date().toISOString();
   const grocerySnapshot = reconcileGrocerySnapshot({ generatedSections: grocerySections, previousState: existingGroceryState, weekId: week.id });
-  const prepCheckedKeys = reconcilePrepCheckedKeys({ generatedSections: prepSections, parseTasks: parsePrepTasks, previousState: existingPrepState, weekId: week.id });
+  const prepCheckedKeys = reconcilePrepCheckedKeys({ generatedSections: prepSections, previousState: existingPrepState, weekId: week.id });
   const nextWeek = {
     ...week,
     groceryItems,
@@ -2123,7 +2123,7 @@ async function saveWeekMenuRows({ archiveDocs, menuRows, onSaveWorkingWeek, week
   const prepSections = buildPrepSectionsFromMenuRows(menuRows, allRecipeDocs);
   const generatedAt = new Date().toISOString();
   const grocerySnapshot = reconcileGrocerySnapshot({ generatedSections: grocerySections, previousState: existingGroceryState, weekId: week.id });
-  const prepCheckedKeys = reconcilePrepCheckedKeys({ generatedSections: prepSections, parseTasks: parsePrepTasks, previousState: existingPrepState, weekId: week.id });
+  const prepCheckedKeys = reconcilePrepCheckedKeys({ generatedSections: prepSections, previousState: existingPrepState, weekId: week.id });
   const nextWeek = {
     ...week,
     groceryItems: flattenGrocerySections(grocerySections),

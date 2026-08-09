@@ -55,3 +55,29 @@ test("prep checks survive generated task reordering", () => {
   });
   assert.deepEqual(checkedKeys, [prepTaskStableKey("week-32", generatedSections[0], parseTasks(generatedSections[0].markdown)[0])]);
 });
+
+test("prep reconciliation uses its built-in parser during week saves", () => {
+  const previousSections = [{
+    title: "Sunday Prep",
+    markdown: "- [x] Chop onions\n  - Meal ownership: Tacos",
+  }];
+  const previousTask = {
+    details: "- Meal ownership: Tacos",
+    index: 0,
+    title: "Chop onions",
+  };
+  const previousKey = prepTaskStableKey("week-33", previousSections[0], previousTask);
+  const generatedSections = [{
+    title: "Sunday Prep",
+    markdown: "- [ ] Thaw beef\n  - Meal ownership: Burgers\n- [ ] Chop onions\n  - Meal ownership: Tacos",
+  }];
+
+  const checkedKeys = reconcilePrepCheckedKeys({
+    generatedSections,
+    previousState: { checkedKeys: [previousKey], sections: previousSections },
+    weekId: "week-33",
+  });
+
+  assert.equal(checkedKeys.length, 1);
+  assert.match(checkedKeys[0], /chop onions/);
+});
