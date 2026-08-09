@@ -35,6 +35,7 @@ import { deleteWeekPlanState, saveWeekPlanState, subscribeWeekPlanState, syncWee
 import { deleteWorkingWeek, subscribeWorkingWeeks, syncWorkingWeeksFromFirebase, upsertWeek, upsertWorkingWeek } from "./services/workingWeeksStore.js";
 import { reconcileGrocerySnapshot, reconcilePrepCheckedKeys } from "./domain/listReconciliation.js";
 import { resolveMealComponentDocs } from "./domain/plannedMeals.js";
+import { clearMenuRowForDay } from "./domain/weekMenuRows.js";
 import "./styles.css";
 
 const views = [
@@ -2520,28 +2521,6 @@ function replaceMenuRowForDay(rows, nextRow) {
 
 function renameMenuRowDay(rows, fromDay, toDay) {
   return rows.map((row) => (row.Day === fromDay ? { ...row, Day: toDay } : row));
-}
-
-function clearMenuRowForDay(rows, day) {
-  return rows.map((row) => {
-    if (row.Day !== day) {
-      return row;
-    }
-    return {
-      ...row,
-      Meal: "",
-      components: [],
-      mealType: "",
-      Notes: "",
-      "Cuisine/flavor": "",
-      "Perishability reason": "",
-      "Plan source": "",
-      Protein: "",
-      "Recipe file": "",
-      "Recipe path": "",
-      Stage: "",
-    };
-  });
 }
 
 function clearAllMenuRows(rows) {
