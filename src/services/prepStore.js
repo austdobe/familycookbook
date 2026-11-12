@@ -1,5 +1,5 @@
 import { cloudWrites } from "./cloudWrite.js";
-import { doc, getDoc, onSnapshot } from "firebase/firestore";
+import { doc, getDoc, getDocFromServer, onSnapshot } from "firebase/firestore";
 import { firebaseIsConfigured, getFirebaseClient } from "./firebase.js";
 import { parsePrepTasksForIdentity, reconcilePrepCheckedKeys } from "../domain/listReconciliation.js";
 
@@ -150,4 +150,15 @@ function normalizeCheckedKeys(weekId, state) {
       weekId,
     }),
   };
+}
+
+// Draft generation must not replace unseen cloud edits with an old local mirror.
+export async function getFreshPrepState(weekId) {
+  if (!firebaseIsConfigured()) return readLocalState(weekId);
+  cloudWrites.assertNoPending(pendingKey(weekId));
+  const stateRef = await getStateRef(weekId);
+  if (!stateRef) throw new Error("Connect to the cloud before generating or applying draft lists. Direct list edits remain available.");
+  const snapshot = await getDocFromServer(stateRef);
+  cloudWrites.assertNoPending(pendingKey(weekId));
+  return { ...emptyState(), ...(snapshot.exists() ? snapshot.data() : {}) };
 }

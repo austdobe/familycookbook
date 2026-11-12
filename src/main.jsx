@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { RecipeImportDialog } from "./components/RecipeImportDialog.jsx";
 import { CookingViewDialog } from "./components/CookingViewDialog.jsx";
@@ -23,11 +23,12 @@ import { createPrepEngine } from "./domain/prepEngine.js";
 import {
   deleteGroceryState,
   getGroceryState,
+  getFreshGroceryState,
   saveGroceryState,
   syncGroceryStateFromFirebase,
 } from "./services/groceryStore.js";
 import { markdownToHtml } from "./services/markdown.js";
-import { deletePrepState, getPrepState, savePrepState, syncPrepStateFromFirebase } from "./services/prepStore.js";
+import { deletePrepState, getPrepState, getFreshPrepState, savePrepState, syncPrepStateFromFirebase } from "./services/prepStore.js";
 import { saveRecipeFeedback, subscribeRecipeFeedback } from "./services/recipeFeedbackStore.js";
 import { saveRecipe, subscribeRecipes, syncRecipesFromFirebase } from "./services/recipeStore.js";
 import { formatQuantity } from "./services/units.js";
@@ -35,6 +36,9 @@ import { deleteWeekPlanState, saveWeekPlanState, subscribeWeekPlanState, syncWee
 import { deleteWorkingWeek, subscribeWorkingWeeks, syncWorkingWeeksFromFirebase, upsertWeek, upsertWorkingWeek } from "./services/workingWeeksStore.js";
 import { reconcileGrocerySnapshot } from "./domain/listReconciliation.js";
 import { reconcilePrepSnapshot } from "./domain/prepSnapshot.js";
+import { ListDraftPreview } from "./components/ListDraftPreview.jsx";
+import { buildListDraftPreview } from "./domain/listDraftPreview.js";
+import { savePlanningMenu, applyReviewedLists, draftFingerprint } from "./domain/listDraftWorkflow.js";
 import { SyncStatusBanner } from "./components/SyncStatusBanner.jsx";
 import { markdownWithBatchIngredients } from "./domain/batchRecipeDisplay.js";
 import { applyBatchPlan } from "./domain/batchPlanEditing.js";
@@ -103,6 +107,8 @@ function App() {
   const [selectedWeekPlanState, setSelectedWeekPlanState] = useState({ menuRows: [] });
   const [resyncStatus, setResyncStatus] = useState("");
   const [resyncingLists, setResyncingLists] = useState(false);
+  const [listDraft, setListDraft] = useState(null);
+  const draftContextRef = useRef("");
   const [syncStatus, setSyncStatus] = useState("");
   const [syncingFirebase, setSyncingFirebase] = useState(false);
   const [pageActionMenuOpen, setPageActionMenuOpen] = useState(false);
@@ -177,31 +183,37 @@ function App() {
     return () => { active = false; unsubscribe(); };
   }, [selectedWeek?.id]);
 
-  const resyncSelectedWeekLists = async () => {
-    if (!selectedWeek || selectedWeekSealed) {
-      return;
-    }
+  const currentDraftContext = draftFingerprint({ week: selectedWeek, plan: selectedWeekPlanState, recipes: archiveDocs });
+  draftContextRef.current = currentDraftContext;
+  useEffect(() => { setListDraft(null); }, [selectedWeek?.id]);
 
+  const resyncSelectedWeekLists = async () => {
+    if (!selectedWeek || selectedWeekSealed || resyncingLists) return;
+    const context = draftContextRef.current;
     setResyncingLists(true);
-    setResyncStatus("Refreshing shopping and prep lists...");
+    setResyncStatus("Generating a preview. Your saved lists are unchanged...");
     try {
-      const nextWeek = await resyncWeekAssets({
-        archiveDocs,
-        existingGroceryState: await getGroceryState(selectedWeek.id),
-        existingPrepState: await getPrepState(selectedWeek.id),
-        week: selectedWeek,
-        weekPlanState: selectedWeekPlanState,
+      const [grocery, prep] = await Promise.all([getFreshGroceryState(selectedWeek.id), getFreshPrepState(selectedWeek.id)]);
+      const draft = createWeekListDraft({ archiveDocs, existingGroceryState: grocery, existingPrepState: prep, week: selectedWeek, weekPlanState: selectedWeekPlanState });
+      if (draftContextRef.current !== context) throw new Error("The plan changed. Generate a fresh preview.");
+      setListDraft({ ...draft, weekId: selectedWeek.id, weekTitle: selectedWeek.title || selectedWeek.label, context, original: { grocery, prep } });
+      setResyncStatus("Review the draft below. Nothing is applied until you choose Apply draft lists.");
+    } catch (error) { setResyncStatus(`Draft generation failed: ${error.message}`); }
+    finally { setResyncingLists(false); }
+  };
+
+  const applyListDraft = async () => {
+    if (!listDraft || resyncingLists) return;
+    setResyncingLists(true);
+    try {
+      await applyReviewedLists({ draft: listDraft, getContext: () => draftContextRef.current,
+        readLists: async () => { const [grocery, prep] = await Promise.all([getFreshGroceryState(listDraft.weekId), getFreshPrepState(listDraft.weekId)]); return { grocery, prep }; },
+        saveGrocery: (state) => saveGroceryState(listDraft.weekId, state),
+        savePrep: (state) => savePrepState(listDraft.weekId, state),
       });
-      if (nextWeek.isWorkingWeek) {
-        setWorkingWeeks((current) => upsertWeek(current, nextWeek));
-        await upsertWorkingWeek(nextWeek);
-      }
-      setResyncStatus("Updated grocery and prep lists. Saved prep edits were preserved.");
-    } catch (error) {
-      setResyncStatus(`List update failed: ${error.message}`);
-    } finally {
-      setResyncingLists(false);
-    }
+      setResyncStatus("Draft lists applied on this device. Check cloud save status for sync confirmation.");
+    } catch (error) { setResyncStatus(error.message); }
+    finally { setListDraft(null); setResyncingLists(false); }
   };
 
   const deleteSelectedWorkingWeek = async (weekToDelete) => {
@@ -328,7 +340,7 @@ function App() {
                   </button>
                   {selectedWeek ? (
                     <button
-                      disabled={resyncingLists || selectedWeekSealed}
+                      disabled={resyncingLists || selectedWeekSealed || Boolean(listDraft)}
                       onClick={() => {
                         setPageActionMenuOpen(false);
                         resyncSelectedWeekLists();
@@ -336,7 +348,7 @@ function App() {
                       role="menuitem"
                       type="button"
                     >
-                      {selectedWeekSealed ? "Update Lists Locked" : resyncingLists ? "Updating..." : "Update Lists"}
+                      {selectedWeekSealed ? "Draft Lists Locked" : resyncingLists ? "Generating..." : "Generate draft lists"}
                     </button>
                   ) : null}
                   {installPrompt ? (
@@ -371,6 +383,7 @@ function App() {
 
         <section className="content-panel" aria-live="polite">
           <SyncStatusBanner />
+          {listDraft ? <ListDraftPreview preview={listDraft.preview} weekTitle={listDraft.weekTitle} busy={resyncingLists} onApply={applyListDraft} onCancel={() => { setListDraft(null); setResyncStatus("Draft discarded. Saved lists are unchanged."); }} /> : <>
           {view === "week" ? (
             <WeekView
               activeDocId={activeDocId}
@@ -423,6 +436,7 @@ function App() {
           {view === "prep" ? (
             <PrepView isSealed={selectedWeekSealed} search={search} week={selectedWeek} />
           ) : null}
+          </>}
         </section>
       </main>
     </div>
@@ -818,6 +832,7 @@ function WeekView({
       <section>
         <div className="section-title">
           <h3>Weekly Menu</h3>
+          <p>Meal edits do not change your grocery or prep lists. Use Generate draft lists in the menu to review proposed changes.</p>
           <div className="section-actions">
             {isSealed ? <span className="pill">Sealed</span> : null}
             <span className="pill">{planCounts.cooks} cooks · {planCounts.leftovers} leftover nights · {planCounts.flexible} flexible nights</span>
@@ -2068,45 +2083,20 @@ function mergeArchiveDocs(localDocs = [], firebaseDocs = []) {
   return [...docsById.values()].sort((first, second) => first.title.localeCompare(second.title));
 }
 
-async function resyncWeekAssets({ archiveDocs, existingGroceryState = {}, existingPrepState = {}, week, weekPlanState = {} }) {
+function createWeekListDraft({ archiveDocs, existingGroceryState = {}, existingPrepState = {}, week, weekPlanState = {} }) {
   const menuRows = activeMenuRowsForWeek(week, weekPlanState);
   const allRecipeDocs = mergeArchiveDocs(week.recipes || [], archiveDocs);
   const grocerySections = buildGrocerySectionsFromMenuRows(menuRows, allRecipeDocs, ingredientRowsForDoc);
   const prepSections = buildPrepSectionsFromMenuRows(menuRows, allRecipeDocs);
-  const groceryItems = flattenGrocerySections(grocerySections);
-  const prepTasks = flattenPrepSections(prepSections);
   const generatedAt = new Date().toISOString();
   const grocerySnapshot = reconcileGrocerySnapshot({ generatedSections: grocerySections, previousState: existingGroceryState, previousGeneratedSections: week.grocerySections || [], weekId: week.id });
   const prepSnapshot = reconcilePrepSnapshot({ generatedSections: prepSections, previousState: existingPrepState, previousGeneratedSections: week.prepSections || [], weekId: week.id });
-  const nextWeek = {
-    ...week,
-    groceryItems,
-    grocerySections,
-    meals: menuRows,
-    menuRows,
-    prepSections,
-    prepTasks,
-    recipePaths: uniqueValues(menuRows.flatMap((row) => recipePathsForMenuRow(row, allRecipeDocs))),
-    title: week.title || week.packet?.title || week.label,
-    updatedAt: generatedAt,
-  };
+  const grocery = { ...grocerySnapshot, generatedAt, generationSource: "reviewed-draft", generationVersion: "draft-v1" };
+  const prep = { ...prepSnapshot, generatedAt, generationSource: "reviewed-draft", generationVersion: "draft-v1" };
+  const previousGrocerySections = existingGroceryState.grocerySnapshotVersion || existingGroceryState.sections?.length ? existingGroceryState.sections : (week.grocerySections || []);
+  const previousPrepSections = existingPrepState.snapshotVersion || existingPrepState.generatedAt || existingPrepState.sections?.length ? existingPrepState.sections : (week.prepSections || []);
+  return { grocery, prep, preview: buildListDraftPreview({ weekId: week.id, previousGrocerySections, previousPrepSections, grocerySnapshot: grocery, prepSnapshot: prep }) };
 
-  await Promise.all([
-    saveGroceryState(week.id, {
-      ...grocerySnapshot,
-      generatedAt,
-      generationSource: "firebase-recipes",
-      generationVersion: "app-week-assets-resync-v3",
-    }),
-    savePrepState(week.id, {
-      ...prepSnapshot,
-      generatedAt,
-      generationSource: "firebase-recipes",
-      generationVersion: "app-week-assets-resync-v3",
-    }),
-  ]);
-
-  return nextWeek;
 }
 
 async function saveNewPlanningWeek(weekPlan, onSaveWorkingWeek) {
@@ -2129,6 +2119,7 @@ async function saveNewPlanningWeek(weekPlan, onSaveWorkingWeek) {
     onSaveWorkingWeek(emptyWeek),
     saveWeekPlanState(emptyWeek.id, { menuRows }),
     saveGroceryState(emptyWeek.id, {
+      grocerySnapshotVersion: 1,
       checkedKeys: [],
       generatedAt,
       generationSource: "week-planner",
@@ -2137,6 +2128,9 @@ async function saveNewPlanningWeek(weekPlan, onSaveWorkingWeek) {
       sections: [],
     }),
     savePrepState(emptyWeek.id, {
+      snapshotVersion: 1,
+      generatedSections: [],
+      prepEdits: { additions: [], overrides: [], removedKeys: [], notes: [] },
       checkedKeys: [],
       generatedAt,
       generationSource: "week-planner",
@@ -2148,47 +2142,11 @@ async function saveNewPlanningWeek(weekPlan, onSaveWorkingWeek) {
 }
 
 async function saveWeekMenuRows({ archiveDocs, menuRows, onSaveWorkingWeek, week }) {
-  const [existingGroceryState, existingPrepState] = await Promise.all([
-    getGroceryState(week.id),
-    getPrepState(week.id),
-  ]);
   const allRecipeDocs = mergeArchiveDocs(week.recipes || [], archiveDocs);
-  const grocerySections = buildGrocerySectionsFromMenuRows(menuRows, allRecipeDocs, ingredientRowsForDoc);
-  const prepSections = buildPrepSectionsFromMenuRows(menuRows, allRecipeDocs);
-  const generatedAt = new Date().toISOString();
-  const grocerySnapshot = reconcileGrocerySnapshot({ generatedSections: grocerySections, previousState: existingGroceryState, previousGeneratedSections: week.grocerySections || [], weekId: week.id });
-  const prepSnapshot = reconcilePrepSnapshot({ generatedSections: prepSections, previousState: existingPrepState, previousGeneratedSections: week.prepSections || [], weekId: week.id });
-  const nextWeek = {
-    ...week,
-    groceryItems: flattenGrocerySections(grocerySections),
-    grocerySections,
-    meals: menuRows,
-    menuRows,
-    prepSections,
-    prepTasks: flattenPrepSections(prepSections),
+  return savePlanningMenu({ week, menuRows, onSaveWorkingWeek, saveWeekPlanState,
     recipePaths: uniqueValues(menuRows.flatMap((row) => recipePathsForMenuRow(row, allRecipeDocs))),
-    title: week.title || week.packet?.title || week.label,
-    weeklyMenu: menuRows,
-    updatedAt: generatedAt,
-  };
+  });
 
-  await Promise.all([
-    onSaveWorkingWeek(nextWeek),
-    saveWeekPlanState(week.id, { menuRows }),
-    saveGroceryState(week.id, {
-      ...grocerySnapshot,
-      generatedAt,
-      generationSource: "week-planner",
-      generationVersion: "inline-week-planner-v2",
-    }),
-    savePrepState(week.id, {
-      ...prepSnapshot,
-      generatedAt,
-      generationSource: "week-planner",
-      generationVersion: "inline-week-planner-v3",
-    }),
-  ]);
-  return nextWeek;
 }
 
 function activeMenuRowsForWeek(week, weekPlanState = {}) {
@@ -2224,12 +2182,8 @@ function workingWeekToAppWeek(week, archiveDocs) {
     },
     recipes,
     weeklyMenu: menuRows,
-    grocerySections: week.grocerySections?.length
-      ? week.grocerySections
-      : buildGrocerySectionsFromMenuRows(menuRows, archiveDocs, ingredientRowsForDoc),
-    prepSections: week.prepSections?.length
-      ? week.prepSections
-      : buildPrepSectionsFromMenuRows(menuRows, archiveDocs),
+    grocerySections: week.grocerySections || [],
+    prepSections: week.prepSections || [],
   };
 }
 

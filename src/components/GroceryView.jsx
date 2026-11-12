@@ -142,7 +142,7 @@ export function GroceryView({ ingredientMode, isSealed = false, search, setIngre
         <div>
           <h3>Shopping Checklist</h3>
           <p>{isSealed ? "This grocery list is sealed for this week." : "Checked items stay saved for this week."}</p>
-          {!isSealed ? <p>Your item edits survive Update Lists. Manually changed amounts stay fixed; review them after changing batch portions.</p> : null}
+          {!isSealed ? <p>Your item edits survive applying draft lists. Manually changed amounts stay fixed; review them after changing batch portions.</p> : null}
         </div>
         <div className="grocery-toolbar-actions">
           <IngredientDetailToggle mode={ingredientMode} setMode={setIngredientMode} />

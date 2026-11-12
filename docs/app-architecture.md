@@ -113,3 +113,12 @@ This is not cross-device conflict resolution: successful writes remain last-writ
 ## Grocery Override Preservation
 
 Regeneration now keeps a generated baseline separate from grocery field overrides and removed source identities. Custom specifications, renamed items, category moves and manually changed quantities survive batch saves and Update Lists; untouched quantities still regenerate from current batch sizes. Legacy lists are compared with their previous generated baseline when available. The initial app and per-week views wait for their matching subscriptions before showing empty states or editing controls. Weekly counts separate flexible placeholders from cooking and linked-leftover nights.
+
+
+## Explicit List Drafts
+
+Meal assignment, batch size, leftover links, clearing and reordering now save the plan only. They do not regenerate or write grocery/prep snapshots. The menu action Generate draft lists computes reconciled proposed snapshots without saving them and shows additions, changes and removals. Apply draft lists is the only generation write path; Cancel discards the in-memory draft. Direct list editing/checking remains independent.
+
+Before applying, the app re-reads both list snapshots and rejects stale drafts if the plan, recipes or list data changed. List editing is hidden while reviewing. Saves use existing local-first stores and expose cloud save status. If one local save fails, the message identifies partial success and requires a fresh preview before retrying. This is not a cross-device transaction: a remote change racing after the final check can still conflict with last-write-wins storage. Drafts are not persisted across reloads.
+
+Draft generation and Apply require fresh server reads when Firebase is configured, and refuse to proceed while local writes are pending or cloud access fails. This deliberately limits offline regeneration; direct list editing remains local-first. Working-week display never generates fallback lists implicitly.
