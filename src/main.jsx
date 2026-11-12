@@ -41,7 +41,7 @@ import { applyBatchPlan } from "./domain/batchPlanEditing.js";
 import { BatchPlanningPanel } from "./components/BatchPlanningPanel.jsx";
 import { projectedRowsWithLeftovers, resolveSourceMeal, batchWarnings, batchScaleFactor, scaleQuantityText } from "./domain/batchPlanning.js";
 import { resolveMealComponentDocs } from "./domain/plannedMeals.js";
-import { clearMenuRowForDay } from "./domain/weekMenuRows.js";
+import { clearMenuRowForDay, mealPlanCounts } from "./domain/weekMenuRows.js";
 import "./styles.css";
 
 const views = [
@@ -96,6 +96,9 @@ function App() {
   const [search, setSearch] = useState("");
   const [installPrompt, setInstallPrompt] = useState(null);
   const [workingWeeks, setWorkingWeeks] = useState([]);
+  const [workingWeeksLoaded, setWorkingWeeksLoaded] = useState(false);
+  const [recipesLoaded, setRecipesLoaded] = useState(false);
+  const [loadedPlanWeekId, setLoadedPlanWeekId] = useState("");
   const [firebaseArchiveDocs, setFirebaseArchiveDocs] = useState([]);
   const [selectedWeekPlanState, setSelectedWeekPlanState] = useState({ menuRows: [] });
   const [resyncStatus, setResyncStatus] = useState("");
@@ -110,9 +113,9 @@ function App() {
     });
   }, []);
 
-  useEffect(() => subscribeWorkingWeeks(setWorkingWeeks), []);
+  useEffect(() => subscribeWorkingWeeks((weeks) => { setWorkingWeeks(weeks); setWorkingWeeksLoaded(true); }), []);
 
-  useEffect(() => subscribeRecipes(setFirebaseArchiveDocs), []);
+  useEffect(() => subscribeRecipes((docs) => { setFirebaseArchiveDocs(docs); setRecipesLoaded(true); }), []);
 
   useEffect(() => {
     if ("serviceWorker" in navigator) {
@@ -169,7 +172,9 @@ function App() {
       return undefined;
     }
     setSelectedWeekPlanState({ menuRows: [] });
-    return subscribeWeekPlanState(selectedWeek.id, setSelectedWeekPlanState);
+    let active = true;
+    const unsubscribe = subscribeWeekPlanState(selectedWeek.id, (state) => { if (active) { setSelectedWeekPlanState(state); setLoadedPlanWeekId(selectedWeek.id); } });
+    return () => { active = false; unsubscribe(); };
   }, [selectedWeek?.id]);
 
   const resyncSelectedWeekLists = async () => {
@@ -238,8 +243,8 @@ function App() {
     }
   };
 
-  if (!data) {
-    return <div className="empty full-page">Loading cookbook...</div>;
+  if (!data || !workingWeeksLoaded || !recipesLoaded || (selectedWeek && loadedPlanWeekId !== selectedWeek.id)) {
+    return <div className="empty full-page" role="status">Loading cookbook and saved plan...</div>;
   }
 
   return (
@@ -442,6 +447,7 @@ function WeekView({
   workingWeeks,
 }) {
   const [weekPlanState, setWeekPlanState] = useState({ menuRows: [] });
+  const [loadedWeekId, setLoadedWeekId] = useState("");
   const [recipeDialogMode, setRecipeDialogMode] = useState("");
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [cookingDialogOpen, setCookingDialogOpen] = useState(false);
@@ -460,8 +466,10 @@ function WeekView({
     if (!week) {
       return undefined;
     }
-    return subscribeWeekPlanState(week.id, setWeekPlanState);
-  }, [week]);
+    let active = true;
+    const unsubscribe = subscribeWeekPlanState(week.id, (state) => { if (active) { setWeekPlanState(state); setLoadedWeekId(week.id); } });
+    return () => { active = false; unsubscribe(); };
+  }, [week?.id]);
 
   if (!week) {
     return (
@@ -484,9 +492,12 @@ function WeekView({
     );
   }
 
+  if (loadedWeekId !== week.id) return <div className="empty" role="status">Loading saved week...</div>;
+
   const sourceMenuRows = projectedRowsWithLeftovers(weekPlanState.menuRows?.length ? weekPlanState.menuRows : week.weeklyMenu);
   const planningWarnings = batchWarnings(sourceMenuRows, mergeArchiveDocs(week.recipes, archiveDocs));
   const plannedMenuRows = sourceMenuRows.filter(hasMeal);
+  const planCounts = mealPlanCounts(sourceMenuRows);
   const menuRows = sourceMenuRows.filter((row) => matchesSearch(Object.values(row).join(" "), search));
   const allRecipeDocs = mergeArchiveDocs(week.recipes, archiveDocs);
   const missingRecipeSelected = String(activeDocId || "").startsWith("missing-recipe|");
@@ -809,7 +820,7 @@ function WeekView({
           <h3>Weekly Menu</h3>
           <div className="section-actions">
             {isSealed ? <span className="pill">Sealed</span> : null}
-            <span className="pill">{plannedMenuRows.filter((row) => row.planKind !== "leftover").length} cooks · {plannedMenuRows.filter((row) => row.planKind === "leftover").length} leftover nights</span>
+            <span className="pill">{planCounts.cooks} cooks · {planCounts.leftovers} leftover nights · {planCounts.flexible} flexible nights</span>
           </div>
         </div>
         {planningWarnings.length ? <div className="card planning-warnings" role="status"><h4>Review this plan</h4><ul>{planningWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div> : null}
@@ -2065,7 +2076,7 @@ async function resyncWeekAssets({ archiveDocs, existingGroceryState = {}, existi
   const groceryItems = flattenGrocerySections(grocerySections);
   const prepTasks = flattenPrepSections(prepSections);
   const generatedAt = new Date().toISOString();
-  const grocerySnapshot = reconcileGrocerySnapshot({ generatedSections: grocerySections, previousState: existingGroceryState, weekId: week.id });
+  const grocerySnapshot = reconcileGrocerySnapshot({ generatedSections: grocerySections, previousState: existingGroceryState, previousGeneratedSections: week.grocerySections || [], weekId: week.id });
   const prepSnapshot = reconcilePrepSnapshot({ generatedSections: prepSections, previousState: existingPrepState, previousGeneratedSections: week.prepSections || [], weekId: week.id });
   const nextWeek = {
     ...week,
@@ -2145,7 +2156,7 @@ async function saveWeekMenuRows({ archiveDocs, menuRows, onSaveWorkingWeek, week
   const grocerySections = buildGrocerySectionsFromMenuRows(menuRows, allRecipeDocs, ingredientRowsForDoc);
   const prepSections = buildPrepSectionsFromMenuRows(menuRows, allRecipeDocs);
   const generatedAt = new Date().toISOString();
-  const grocerySnapshot = reconcileGrocerySnapshot({ generatedSections: grocerySections, previousState: existingGroceryState, weekId: week.id });
+  const grocerySnapshot = reconcileGrocerySnapshot({ generatedSections: grocerySections, previousState: existingGroceryState, previousGeneratedSections: week.grocerySections || [], weekId: week.id });
   const prepSnapshot = reconcilePrepSnapshot({ generatedSections: prepSections, previousState: existingPrepState, previousGeneratedSections: week.prepSections || [], weekId: week.id });
   const nextWeek = {
     ...week,

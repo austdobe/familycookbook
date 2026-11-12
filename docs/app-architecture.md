@@ -108,3 +108,8 @@ Working-week rows may carry `planKind`, stable `batchId`, `batchServings`, `dinn
 All mutable stores use `cloudWrite.js` and `syncStatus.js` for saving/local-only/error/synced feedback and explicit retry. Unsent immutable write payloads persist in local storage; newer edits supersede/coalesce pending writes. Pending local edits are protected from cloud reads. Related working-week index/document updates use an atomic batch. A stalled cloud request releases the UI after eight seconds without starting overlapping retries.
 
 This is not cross-device conflict resolution: successful writes remain last-write-wins. A subscription initially opened offline stays local until refresh; after retry the UI advises refreshing to pick up other-device changes. Local storage remains necessary for offline durability.
+
+
+## Grocery Override Preservation
+
+Regeneration now keeps a generated baseline separate from grocery field overrides and removed source identities. Custom specifications, renamed items, category moves and manually changed quantities survive batch saves and Update Lists; untouched quantities still regenerate from current batch sizes. Legacy lists are compared with their previous generated baseline when available. The initial app and per-week views wait for their matching subscriptions before showing empty states or editing controls. Weekly counts separate flexible placeholders from cooking and linked-leftover nights.

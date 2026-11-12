@@ -2,10 +2,12 @@ import React, { useEffect, useState } from "react";
 import { sortGroceryItems } from "../domain/groceryEngine.js";
 import { groceryItemStableKey } from "../domain/listReconciliation.js";
 import { clearGroceryState, saveGroceryState, subscribeGroceryState, toggleGroceryItem } from "../services/groceryStore.js";
+import { recordGroceryEdit } from "../domain/groceryEdits.js";
 import { formatQuantity } from "../services/units.js";
 
 export function GroceryView({ ingredientMode, isSealed = false, search, setIngredientMode, setUnitMode, unitMode, week }) {
   const [groceryState, setGroceryState] = useState({ checkedKeys: [], manualItems: [], sections: [] });
+  const [loadedWeekId, setLoadedWeekId] = useState("");
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
   const [editingGroceryKey, setEditingGroceryKey] = useState("");
   const [manualForm, setManualForm] = useState(emptyManualGroceryForm());
@@ -14,14 +16,19 @@ export function GroceryView({ ingredientMode, isSealed = false, search, setIngre
     if (!week) {
       return undefined;
     }
-    return subscribeGroceryState(week.id, setGroceryState);
-  }, [week]);
+    setManualDialogOpen(false);
+    setEditingGroceryKey("");
+    setManualForm(emptyManualGroceryForm());
+    let active = true;
+    const unsubscribe = subscribeGroceryState(week.id, (state) => { if (active) { setGroceryState(state); setLoadedWeekId(week.id); } });
+    return () => { active = false; unsubscribe(); };
+  }, [week?.id]);
 
   useEffect(() => {
     if (!week) {
       return;
     }
-    const options = groceryCategoryOptions(groceryState.sections?.length ? groceryState.sections : week.grocerySections);
+    const options = groceryCategoryOptions(groceryState.grocerySnapshotVersion || groceryState.sections?.length ? groceryState.sections : (week.grocerySections || []));
     setManualForm((current) => ({
       ...current,
       section: resolveGrocerySectionTitle(current.section, options) || options[0] || "Other",
@@ -57,8 +64,10 @@ export function GroceryView({ ingredientMode, isSealed = false, search, setIngre
     return <div className="empty">No grocery list found.</div>;
   }
 
+  if (loadedWeekId !== week.id) return <div className="empty" role="status">Loading grocery list...</div>;
+
   const checkedKeys = new Set(groceryState.checkedKeys || []);
-  const storedGrocerySections = groceryState.sections?.length ? groceryState.sections : week.grocerySections;
+  const storedGrocerySections = groceryState.grocerySnapshotVersion || groceryState.sections?.length ? groceryState.sections : (week.grocerySections || []);
   const legacyManualItems = groceryState.manualItems || [];
   const sourceGrocerySections = legacyManualItems.length
     ? mergeManualItemsIntoSections(storedGrocerySections, legacyManualItems, groceryCategoryOptions(storedGrocerySections))
@@ -133,6 +142,7 @@ export function GroceryView({ ingredientMode, isSealed = false, search, setIngre
         <div>
           <h3>Shopping Checklist</h3>
           <p>{isSealed ? "This grocery list is sealed for this week." : "Checked items stay saved for this week."}</p>
+          {!isSealed ? <p>Your item edits survive Update Lists. Manually changed amounts stay fixed; review them after changing batch portions.</p> : null}
         </div>
         <div className="grocery-toolbar-actions">
           <IngredientDetailToggle mode={ingredientMode} setMode={setIngredientMode} />
@@ -374,7 +384,7 @@ function orderedGroceryHeaders(items = []) {
   ];
 }
 
-function addGroceryItemState(currentState, sourceSections, form) {
+export function addGroceryItemState(currentState, sourceSections, form) {
   const nextSections = cleanGrocerySections(sourceSections);
   const targetSection = ensureGrocerySection(nextSections, form.section || "Other");
   targetSection.items.push(groceryItemFromForm(form, `manual-${Date.now()}-${Math.random().toString(16).slice(2)}`));
@@ -385,7 +395,7 @@ function addGroceryItemState(currentState, sourceSections, form) {
   };
 }
 
-function updateGrocerySectionsState(week, currentState, sourceSections, itemKey, form) {
+export function updateGrocerySectionsState(week, currentState, sourceSections, itemKey, form) {
   const nextSections = cleanGrocerySections(sourceSections);
   let editedItem = null;
 
@@ -394,7 +404,8 @@ function updateGrocerySectionsState(week, currentState, sourceSections, itemKey,
       if (groceryItemKey(week, section, item, sectionIndex, itemIndex) !== itemKey) {
         return true;
       }
-      editedItem = { ...item, ...groceryItemFromForm(form, item._manualId) };
+      const baselineItem = (currentState.generatedSections || week.grocerySections || []).flatMap((baselineSection) => (baselineSection.items || []).filter((candidate) => groceryItemStableKey(week.id, baselineSection, candidate) === itemKey))[0] || null;
+      editedItem = recordGroceryEdit(item, section.title, form.section || "Other", groceryItemFromForm(form, item._manualId), week.id, baselineItem);
       return false;
     });
   });
@@ -411,7 +422,8 @@ function updateGrocerySectionsState(week, currentState, sourceSections, itemKey,
   };
 }
 
-function removeGroceryItemState(week, currentState, sourceSections, itemKey) {
+export function removeGroceryItemState(week, currentState, sourceSections, itemKey) {
+  const removed = sourceSections.flatMap((section) => (section.items || []).filter((item) => groceryItemStableKey(week.id, section, item) === itemKey));
   const nextSections = cleanGrocerySections(sourceSections).map((section, sectionIndex) => ({
     ...section,
     items: section.items.filter((item, itemIndex) => groceryItemKey(week, section, item, sectionIndex, itemIndex) !== itemKey),
@@ -419,6 +431,8 @@ function removeGroceryItemState(week, currentState, sourceSections, itemKey) {
 
   return {
     ...currentState,
+    grocerySnapshotVersion: 1,
+    removedGroceryKeys: [...new Set([...(currentState.removedGroceryKeys || []), ...removed.filter((item) => !item._manualId).map(() => itemKey)])],
     checkedKeys: (currentState.checkedKeys || []).filter((key) => key !== itemKey),
     manualItems: [],
     sections: removeEmptyGrocerySections(nextSections),
@@ -434,7 +448,7 @@ function cleanGrocerySections(sections = []) {
 
 function cleanGroceryItem(item) {
   return Object.fromEntries(
-    Object.entries(item || {}).filter(([key]) => !key.startsWith("_") || key === "_manualId" || key === "_source")
+    Object.entries(item || {}).filter(([key]) => !key.startsWith("_") || key === "_manualId" || key === "_source" || key === "_grocerySourceKey" || key === "_groceryOverrides")
   );
 }
 

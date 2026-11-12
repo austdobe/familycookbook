@@ -1,3 +1,4 @@
+import { mergeGroceryEdits } from "./groceryEdits.js";
 import { parsePrepTasks } from "./prepTasks.js";
 
 export function normalizeListIdentity(value) {
@@ -9,6 +10,7 @@ export function normalizeListIdentity(value) {
 }
 
 export function groceryItemStableKey(weekId, section, item) {
+  if (item?._grocerySourceKey) return item._grocerySourceKey;
   if (item?._manualId) {
     return `${weekId}|grocery|manual|${item._manualId}`;
   }
@@ -31,10 +33,11 @@ export function prepTaskStableKey(weekId, section, task) {
   ].join("|");
 }
 
-export function reconcileGrocerySnapshot({ generatedSections = [], previousState = {}, weekId }) {
+export function reconcileGrocerySnapshot({ generatedSections = [], previousState = {}, previousGeneratedSections = [], weekId }) {
   const previousSections = previousState.sections || [];
   const checkedIdentities = checkedGroceryIdentities(previousSections, previousState.checkedKeys || [], weekId);
-  const sections = appendManualSectionItems(generatedSections, previousSections);
+  const merged = mergeGroceryEdits({ generatedSections, previousState, previousGeneratedSections, weekId });
+  const { sections } = merged;
   const checkedKeys = [];
   sections.forEach((section) => {
     (section.items || []).forEach((item) => {
@@ -43,6 +46,7 @@ export function reconcileGrocerySnapshot({ generatedSections = [], previousState
     });
   });
   return {
+    ...merged,
     checkedKeys,
     manualItems: previousState.manualItems || [],
     sections,
@@ -88,25 +92,8 @@ function checkedGroceryIdentities(sections, checkedKeys, weekId) {
   return identities;
 }
 
-function appendManualSectionItems(generatedSections, previousSections) {
-  const sections = generatedSections.map((section) => ({
-    ...section,
-    items: (section.items || []).map((item) => ({ ...item })),
-  }));
-  previousSections.forEach((section) => {
-    (section.items || []).filter((item) => item?._manualId).forEach((item) => {
-      let target = sections.find((candidate) => normalizeListIdentity(candidate.title) === normalizeListIdentity(section.title));
-      if (!target) {
-        target = { title: section.title || "Other", items: [] };
-        sections.push(target);
-      }
-      if (!target.items.some((candidate) => candidate._manualId === item._manualId)) target.items.push({ ...item });
-    });
-  });
-  return sections;
-}
-
 function groceryIdentity(section, item) {
+  if (item?._grocerySourceKey) return item._grocerySourceKey.split("|grocery|")[1];
   return item?._manualId
     ? `manual|${item._manualId}`
     : `${normalizeListIdentity(section?.title)}|${normalizeListIdentity(item?.Item)}`;

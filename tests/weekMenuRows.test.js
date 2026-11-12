@@ -33,3 +33,10 @@ test("clearing a cook or leftover removes batch links and portion settings", () 
   assert.equal(row.planKind, "");
   assert.equal(row.batchServings, null);
 });
+
+
+test("meal counts distinguish flexible placeholders, linked leftovers and cooking", async () => {
+  const { mealPlanCounts } = await import("../src/domain/weekMenuRows.js");
+  assert.deepEqual(mealPlanCounts([{Meal:"Salmon",components:[{recipeId:"salmon"}]},{Meal:"Soup"},{Meal:"Pasta"},{Meal:"Leftovers / flex"},{Meal:"Flexible night"},{Meal:"",planKind:"leftover"},{Meal:""}]), {cooks:3,leftovers:1,flexible:2});
+  assert.deepEqual(mealPlanCounts([{Meal:"Leftover rice fried rice",components:[{recipeId:"rice"}]},{Meal:"Flex",planKind:"cook"}]), {cooks:2,leftovers:0,flexible:0});
+});
