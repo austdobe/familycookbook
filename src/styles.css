@@ -2118,3 +2118,33 @@
 .planning-warnings h4 { margin: 0 0 8px; }
 .planning-warnings ul { margin: 0; padding-left: 20px; }
 .batch-card-note { font-size: .85rem; color: var(--muted, #666); }
+
+/* Guided cooking keeps the next action first, especially on phones. */
+.guided-cooking-layout { grid-template-columns: minmax(0, 1.7fr) minmax(260px, 1fr); }
+.guided-cooking-directions { display: block; }
+.cooking-next, .cooking-running, .cooking-preflight, .cooking-timeline article { background: white; border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin: 16px 0; }
+.cooking-next { border: 2px solid var(--teal); }
+.cooking-next h3 { margin-top: 0; }
+.cooking-action-text { font-size: clamp(21px, 2.5vw, 30px); line-height: 1.5; white-space: pre-wrap; }
+.cooking-task-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.cooking-task-actions button, .cooking-timeline button { min-height: 44px; }
+.cooking-hands-off { display: flex; align-items: start; gap: 10px; margin-top: 16px; }
+.cooking-hands-off input { min-width: 24px; height: 24px; }
+.cooking-prep-text { white-space: pre-wrap; font-size: 15px; }
+.cooking-preflight details { border-top: 1px solid var(--line); padding: 10px 0; }
+.cooking-preflight input[type="datetime-local"] { display: block; max-width: 100%; margin-top: 8px; }
+.cooking-view summary { cursor: pointer; font-weight: 700; padding: 8px 0; }
+.cooking-timeline article p { white-space: pre-wrap; }
+@media (max-width: 760px), (orientation: portrait) {
+  .guided-cooking-layout { grid-template-columns: 1fr; }
+  .guided-cooking-directions { order: 0; }
+  .guided-cooking-layout .cooking-ingredients { order: 1; }
+  .cooking-view-header { padding: 12px; }
+  .cooking-view-header h2 { font-size: 21px; }
+}
+.cooking-task-actions button, .cooking-running > button, .cooking-timeline button, .guided-cooking-directions > .planning-warnings button { background: var(--teal-strong, #173d38); color: white; border: 0; border-radius: 10px; padding: 12px 16px; font: inherit; font-weight: 700; cursor: pointer; min-height: 46px; }
+.cooking-task-actions .quiet-button { background: #eef4f1; color: #173d38; }
+.cooking-running > button { margin-top: 10px; }
+.cooking-skip-confirm { flex-basis: 100%; padding: 12px; background: #fff6df; border-radius: 10px; }
+.cooking-skip-confirm button { margin-right: 8px; }
+.guided-cooking-directions > .quiet-button { margin-right: 8px; margin-bottom: 10px; }

@@ -122,3 +122,11 @@ Meal assignment, batch size, leftover links, clearing and reordering now save th
 Before applying, the app re-reads both list snapshots and rejects stale drafts if the plan, recipes or list data changed. List editing is hidden while reviewing. Saves use existing local-first stores and expose cloud save status. If one local save fails, the message identifies partial success and requires a fresh preview before retrying. This is not a cross-device transaction: a remote change racing after the final check can still conflict with last-write-wins storage. Drafts are not persisted across reloads.
 
 Draft generation and Apply require fresh server reads when Firebase is configured, and refuse to proceed while local writes are pending or cloud access fails. This deliberately limits offline regeneration; direct list editing remains local-first. Working-week display never generates fallback lists implicitly.
+
+## Guided Start Cooking
+
+Start Cooking coordinates every recipe attached to the selected meal. It recommends the next dependency-ready step, favoring the component with the most known timed work. Starting an active step pauses other suggestions until the user finishes it or explicitly marks it hands-off. Parallel work never implies that food can be left unattended. Steps are never completed by a timer. Done/already-done, confirmed Skip, Undo, and a confirmed session reset are available.
+
+The full timeline preserves each recipe's dependency order, not a precise oven/equipment schedule. Only one unambiguous recipe duration is parsed; missing/conditional timing remains unknown. An optional serving target is a visible reminder rather than a promised finish time. Shared oven/pan conflicts and make-ahead work require review. Saved weekly prep is available read-only inside preflight; it is not automatically matched or checked off by cooking actions.
+
+Progress and ingredient checks are local to this browser/device, keyed by week/card/batch plus content-sensitive task IDs. Recipe or portion changes start a separate session rather than silently carrying completion to changed directions. Cooking progress does not write recipes, menu data, or shared prep/grocery state. Linked leftover nights show storage/reheat guidance instead of starting another cooking batch.

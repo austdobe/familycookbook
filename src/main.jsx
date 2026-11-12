@@ -534,6 +534,12 @@ function WeekView({
   const readerFactor = readerDoc && selectedCookRow ? batchScaleFactor(selectedCookRow, readerDoc) : 1;
   const batchNote = readerFactor && readerFactor !== 1 ? `Ingredients scaled ${Number(readerFactor.toFixed(3))}× for this batch. Written directions retain the original quantities: use the scaled ingredient list, not quantities repeated in steps. Cooking times and temperatures are not multiplied.` : "";
   const readerIngredients = readerDoc ? recipeIngredientsForEditing(readerDoc).map((ingredient) => ({ ...ingredient, quantityText: scaleQuantityText(ingredient.quantityText, readerFactor || 1) })) : [];
+  const cookingDocs = selectedRowDocs.length ? [...selectedRowDocs] : readerDoc ? [readerDoc] : [];
+  for (const component of mealComponentsForRow(selectedCookRow)) {
+    if (component.recipeId && !cookingDocs.some((doc) => doc.id === component.recipeId || doc.recipe?.id === component.recipeId)) {
+      cookingDocs.push({ id: component.recipeId, title: `Missing ${component.role || "meal"} recipe`, missingCookingRecipe: true });
+    }
+  }
   const cardEditorRow = sourceMenuRows.find((row) => row.Day === cardEditorDay) || null;
   const canDeleteWeek = plannedMenuRows.length === 0 && workingWeeks.some((candidate) => candidate.id === week.id);
   const sealWeek = async () => {
@@ -958,12 +964,22 @@ function WeekView({
       </section>
       {cookingDialogOpen && readerDoc ? (
         <CookingViewDialog
-          ingredients={readerIngredients}
-          batchNote={batchNote}
+          components={selectedRow?.planKind === "leftover" ? [{ id: "leftover", title: selectedRow.Meal || "Leftovers", ingredients: [], steps: [
+            { section: "Storage check", text: "Check when this food was cooked and how it was stored. Use refrigerated leftovers within 3–4 days; if frozen, thaw safely in the refrigerator. If storage was unsafe or uncertain, do not serve it." },
+            { section: "Reheat", text: "Reheat the reserved portions using an appropriate stovetop, oven or microwave method until they reach 165°F throughout. Stir or rotate where appropriate and check with a food thermometer. Do not use a slow cooker to reheat cold leftovers." },
+            { section: "Serve", text: "Serve promptly, keeping cold toppings chilled until serving. Refrigerate perishables within 2 hours, or 1 hour above 90°F." },
+          ] }] : cookingDocs.map((doc) => {
+            if (doc.missingCookingRecipe) return { id: doc.id, title: doc.title, steps: [], ingredients: [] };
+            const factor = selectedCookRow ? batchScaleFactor(selectedCookRow, doc) : 1;
+            return { id: doc.id, title: doc.title, steps: cookingStepsForRecipe(doc),
+              ingredients: recipeIngredientsForEditing(doc).map((ingredient) => ({ ...ingredient, quantityText: scaleQuantityText(ingredient.quantityText, factor || 1) })),
+              batchNote: factor === null ? "Recipe serving count is missing. Ingredient amounts are unscaled; check the batch manually." : factor !== 1 ? `Ingredients scaled ${Number(factor.toFixed(3))}x. Directions retain original amounts; use this ingredient list. Times and temperatures are not multiplied.` : "",
+            };
+          })}
+          weekId={week.id}
+          sessionId={`${week.id}:${selectedRow?.Day || readerDoc.id}:${selectedRow?.batchServings || ""}:${selectedRow?.planKind || "cook"}`}
           onClose={() => setCookingDialogOpen(false)}
-          recipeId={readerDoc.id}
-          steps={cookingStepsForRecipe(readerDoc)}
-          title={readerDoc.title}
+          title={selectedRow?.Meal || readerDoc.title}
         />
       ) : null}
       {feedbackDialogOpen && readerDoc ? (
@@ -2017,13 +2033,14 @@ function MarkdownDoc({ ingredientMode = "detailed", markdown, unitMode = "us" })
 }
 
 function cookingStepsForRecipe(recipe) {
-  const sections = recipe.recipe?.instructionSections?.length
+  const sections = Array.isArray(recipe?.recipe?.instructionSections) && recipe.recipe.instructionSections.length
     ? recipe.recipe.instructionSections
-    : instructionSectionsFromMarkdown(recipe.markdown || "");
-  return sections.flatMap((section) => (section.steps || []).map((step) => ({
-    section: section.title || section.name || "Directions",
-    text: step.text || String(step || ""),
-  }))).filter((step) => step.text);
+    : instructionSectionsFromMarkdown(recipe?.markdown || "");
+  return sections.flatMap((section) => (Array.isArray(section?.steps) ? section.steps : []).map((step) => ({
+    ...(step && typeof step === "object" ? step : {}),
+    section: section?.title || section?.name || "Directions",
+    text: typeof step === "string" ? step : typeof step?.text === "string" ? step.text : "",
+  })));
 }
 function IngredientDetailToggle({ mode, setMode }) {
   return (
