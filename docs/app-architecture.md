@@ -52,6 +52,7 @@ The sidebar routes are defined by the `views` array in `src/main.jsx`.
 | `src/domain/listReconciliation.js` | Stable grocery/prep identities and state-preserving regeneration. |
 | `src/domain/groceryEngine.js` | Grocery aggregation, category assignment, quantity merging, shopping normalization, and sorting. |
 | `src/domain/plannedMeals.js` | Complete, composed, hybrid, and legacy meal-component resolution. |
+| `src/domain/prepSnapshot.js` | Prep task edits, additions, removals, and regeneration reconciliation. |
 | `src/domain/prepEngine.js` | Recipe-owned prep task generation, scheduling, storage guidance, and checklist flattening. |
 | `src/domain/recipeMarkdown.js` | Canonical recipe Markdown normalization, parsing, and recipe save payloads. |
 | `src/domain/recipeOcr.js` | OCR cleanup and canonical Markdown generation from recipe images. |
@@ -66,7 +67,7 @@ The sidebar routes are defined by the `views` array in `src/main.jsx`.
 6. Grocery/prep edits update the snapshot for that week, not the source recipe.
 7. Sealing a week prevents accidental changes to week rows, grocery, prep, and checklist state.
 
-Generated list rows use semantic identities rather than array positions. When a meal changes, regeneration reconciles the new grocery/prep output with the previous snapshot so unchanged checks and manual grocery rows survive.
+Generated list rows use semantic identities rather than array positions. When a meal changes, regeneration reconciles the new grocery/prep output with the previous snapshot so unchanged checks and manual grocery rows survive. Prep snapshots also retain manual additions, edited tasks, and explicit removals across regeneration. `snapshotVersion: 1` distinguishes an intentionally empty checklist from missing state; `generatedSections` records its baseline and `prepEdits` records the user overrides. Stable task identities are serialized as hidden `prep-key` comments so changing a title or section does not change checkbox/edit identity. Legacy snapshots migrate on their next edit or regeneration, not on read. A unique generated title/meal pair retains its identity when rescheduled to another section; ambiguous matches are not guessed.
 
 ## Grocery Generation Notes
 
@@ -95,3 +96,15 @@ The app renderer is `src/services/markdown.js`. It supports:
 - collapsible recipe Ingredients sections.
 
 PDF export uses separate rendering code in `scripts/export-pdf.js`. Keep this mismatch in mind when changing Markdown display.
+
+## Batch and Leftover Planning
+
+Working-week rows may carry `planKind`, stable `batchId`, `batchServings`, `dinnerServings`, `leftoverOfBatchId`, and `leftoverStorage`. Legacy rows keep their original yield. Linked leftover nights resolve the current cooking row, do not add ingredients or cooking prep twice, and become visibly unresolved if their source is cleared. `batchPlanning.js` scales each component against its own explicit recipe yield and flags ambiguous quantities/yields for review rather than guessing. Recipe ingredient tables scale; written directions intentionally retain original quantities and carry a warning.
+
+`batchPlanEditing.js` validates UI edits without changing other rows. Warnings cover insufficient portions, orphan/duplicate links, leftovers before cooking, and refrigerator storage beyond four days. These are planning reminders, not automatic food-safety guarantees. Frozen leftovers get thaw/reheat reminders.
+
+## Cloud Save Feedback
+
+All mutable stores use `cloudWrite.js` and `syncStatus.js` for saving/local-only/error/synced feedback and explicit retry. Unsent immutable write payloads persist in local storage; newer edits supersede/coalesce pending writes. Pending local edits are protected from cloud reads. Related working-week index/document updates use an atomic batch. A stalled cloud request releases the UI after eight seconds without starting overlapping retries.
+
+This is not cross-device conflict resolution: successful writes remain last-write-wins. A subscription initially opened offline stays local until refresh; after retry the UI advises refreshing to pick up other-device changes. Local storage remains necessary for offline durability.

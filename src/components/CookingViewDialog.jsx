@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 
-export function CookingViewDialog({ ingredients, onClose, recipeId, steps, title }) {
+export function CookingViewDialog({ ingredients, onClose, recipeId, steps, title, batchNote = "" }) {
   const [checkedIngredients, setCheckedIngredients] = useState(() => new Set());
   const [stepIndex, setStepIndex] = useState(0);
   const [showAllSteps, setShowAllSteps] = useState(false);
@@ -67,6 +67,7 @@ export function CookingViewDialog({ ingredients, onClose, recipeId, steps, title
             </div>
           </aside>
           <main className="cooking-directions">
+            {batchNote ? <p className="planning-warnings">{batchNote}</p> : null}
             <div className="cooking-section-heading">
               <h3>Directions</h3>
               <button className="quiet-button" onClick={() => setShowAllSteps((current) => !current)} type="button">{showAllSteps ? "One step" : "View all"}</button>

@@ -33,7 +33,13 @@ import { saveRecipe, subscribeRecipes, syncRecipesFromFirebase } from "./service
 import { formatQuantity } from "./services/units.js";
 import { deleteWeekPlanState, saveWeekPlanState, subscribeWeekPlanState, syncWeekPlanStateFromFirebase } from "./services/weekPlanStore.js";
 import { deleteWorkingWeek, subscribeWorkingWeeks, syncWorkingWeeksFromFirebase, upsertWeek, upsertWorkingWeek } from "./services/workingWeeksStore.js";
-import { reconcileGrocerySnapshot, reconcilePrepCheckedKeys } from "./domain/listReconciliation.js";
+import { reconcileGrocerySnapshot } from "./domain/listReconciliation.js";
+import { reconcilePrepSnapshot } from "./domain/prepSnapshot.js";
+import { SyncStatusBanner } from "./components/SyncStatusBanner.jsx";
+import { markdownWithBatchIngredients } from "./domain/batchRecipeDisplay.js";
+import { applyBatchPlan } from "./domain/batchPlanEditing.js";
+import { BatchPlanningPanel } from "./components/BatchPlanningPanel.jsx";
+import { projectedRowsWithLeftovers, resolveSourceMeal, batchWarnings, batchScaleFactor, scaleQuantityText } from "./domain/batchPlanning.js";
 import { resolveMealComponentDocs } from "./domain/plannedMeals.js";
 import { clearMenuRowForDay } from "./domain/weekMenuRows.js";
 import "./styles.css";
@@ -185,7 +191,7 @@ function App() {
         setWorkingWeeks((current) => upsertWeek(current, nextWeek));
         await upsertWorkingWeek(nextWeek);
       }
-      setResyncStatus(`Updated ${nextWeek.groceryItems.length} grocery items and ${nextWeek.prepTasks.length} prep tasks.`);
+      setResyncStatus("Updated grocery and prep lists. Saved prep edits were preserved.");
     } catch (error) {
       setResyncStatus(`List update failed: ${error.message}`);
     } finally {
@@ -359,6 +365,7 @@ function App() {
         </header>
 
         <section className="content-panel" aria-live="polite">
+          <SyncStatusBanner />
           {view === "week" ? (
             <WeekView
               activeDocId={activeDocId}
@@ -477,7 +484,8 @@ function WeekView({
     );
   }
 
-  const sourceMenuRows = weekPlanState.menuRows?.length ? weekPlanState.menuRows : week.weeklyMenu;
+  const sourceMenuRows = projectedRowsWithLeftovers(weekPlanState.menuRows?.length ? weekPlanState.menuRows : week.weeklyMenu);
+  const planningWarnings = batchWarnings(sourceMenuRows, mergeArchiveDocs(week.recipes, archiveDocs));
   const plannedMenuRows = sourceMenuRows.filter(hasMeal);
   const menuRows = sourceMenuRows.filter((row) => matchesSearch(Object.values(row).join(" "), search));
   const allRecipeDocs = mergeArchiveDocs(week.recipes, archiveDocs);
@@ -489,14 +497,18 @@ function WeekView({
   const selectedDoc = missingRecipeSelected
     ? null
     : allRecipeDocs.find((doc) => doc.id === activeDocId) || getDefaultRecipeForWeek(week, plannedMenuRows, allRecipeDocs) || allRecipeDocs[0] || null;
-  const selectedRowDoc = selectedRow ? findRecipeDocForMenuRow(selectedRow, allRecipeDocs) : null;
-  const selectedRowDocs = selectedRow ? recipeDocsForMenuRow(selectedRow, allRecipeDocs) : [];
+  const selectedCookRow = resolveSourceMeal(selectedRow, sourceMenuRows);
+  const selectedRowDoc = selectedCookRow ? findRecipeDocForMenuRow(selectedCookRow, allRecipeDocs) : null;
+  const selectedRowDocs = selectedCookRow ? recipeDocsForMenuRow(selectedCookRow, allRecipeDocs) : [];
   const currentSelectedRecipeIndex = selectedRowDocs.length
     ? Math.min(selectedRecipeIndex, selectedRowDocs.length - 1)
     : 0;
   const readerDoc = selectedRow
     ? selectedRowDocs[currentSelectedRecipeIndex] || selectedRowDoc
     : selectedDoc;
+  const readerFactor = readerDoc && selectedCookRow ? batchScaleFactor(selectedCookRow, readerDoc) : 1;
+  const batchNote = readerFactor && readerFactor !== 1 ? `Ingredients scaled ${Number(readerFactor.toFixed(3))}× for this batch. Written directions retain the original quantities: use the scaled ingredient list, not quantities repeated in steps. Cooking times and temperatures are not multiplied.` : "";
+  const readerIngredients = readerDoc ? recipeIngredientsForEditing(readerDoc).map((ingredient) => ({ ...ingredient, quantityText: scaleQuantityText(ingredient.quantityText, readerFactor || 1) })) : [];
   const cardEditorRow = sourceMenuRows.find((row) => row.Day === cardEditorDay) || null;
   const canDeleteWeek = plannedMenuRows.length === 0 && workingWeeks.some((candidate) => candidate.id === week.id);
   const sealWeek = async () => {
@@ -545,6 +557,13 @@ function WeekView({
     });
     setActiveDocId("");
     return nextWeek;
+  };
+
+  const saveBatchPlan = async (input) => {
+    const result = applyBatchPlan(sourceMenuRows, selectedRow?.Day, input, (row) => recipeDocsForMenuRow(row, allRecipeDocs).length > 0);
+    if (result.error) return { ok: false, error: result.error };
+    await saveRows(result.rows);
+    return { ok: true };
   };
 
   const assignRecipeToSelectedDay = async (recipeDoc, assignment = {}) => {
@@ -790,17 +809,18 @@ function WeekView({
           <h3>Weekly Menu</h3>
           <div className="section-actions">
             {isSealed ? <span className="pill">Sealed</span> : null}
-            <span className="pill">{plannedMenuRows.length} meals</span>
+            <span className="pill">{plannedMenuRows.filter((row) => row.planKind !== "leftover").length} cooks · {plannedMenuRows.filter((row) => row.planKind === "leftover").length} leftover nights</span>
           </div>
         </div>
+        {planningWarnings.length ? <div className="card planning-warnings" role="status"><h4>Review this plan</h4><ul>{planningWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div> : null}
         <div className="menu-grid">
           {menuRows.length ? menuRows.map((row) => (
             <DayCard
               activeDocId={activeDocId}
               canDrag={!isSealed && hasMeal(row)}
-              componentDocs={recipeDocsForMenuRow(row, allRecipeDocs)}
+              componentDocs={recipeDocsForMenuRow(resolveSourceMeal(row, sourceMenuRows) || {}, allRecipeDocs)}
               dayDragType={DAY_DRAG_TYPE}
-              doc={findRecipeDocForMenuRow(row, allRecipeDocs)}
+              doc={findRecipeDocForMenuRow(resolveSourceMeal(row, sourceMenuRows) || {}, allRecipeDocs)}
               key={`${row.Day}-${row["Recipe path"] || row["Recipe file"] || row.Meal}`}
               row={row}
               draggingDay={isSealed ? "" : draggingDay}
@@ -833,6 +853,7 @@ function WeekView({
         </div>
       </section>
 
+      {!isSealed && mealEditorOpen && selectedRow ? <BatchPlanningPanel row={selectedRow} rows={sourceMenuRows} docs={allRecipeDocs} onSave={saveBatchPlan} /> : null}
       {!isSealed && mealEditorOpen ? (
         <WeekMealAssignmentPanel
           archiveDocs={allRecipeDocs}
@@ -894,11 +915,12 @@ function WeekView({
             <span className="pill">{readerDoc ? stageForDoc(readerDoc) || "Recipe" : "No draft"}</span>
           </div>
         </div>
+        {batchNote ? <p className="card planning-warnings">{batchNote}</p> : null}
         {readerDoc ? (
           <MarkdownDoc
             ingredientMode={ingredientMode}
             unitMode={unitMode}
-            markdown={readerDoc.markdown}
+            markdown={batchNote ? markdownWithBatchIngredients(readerDoc.markdown, readerIngredients) : readerDoc.markdown}
           />
         ) : (
           <RecipeZeroState
@@ -910,7 +932,8 @@ function WeekView({
       </section>
       {cookingDialogOpen && readerDoc ? (
         <CookingViewDialog
-          ingredients={recipeIngredientsForEditing(readerDoc)}
+          ingredients={readerIngredients}
+          batchNote={batchNote}
           onClose={() => setCookingDialogOpen(false)}
           recipeId={readerDoc.id}
           steps={cookingStepsForRecipe(readerDoc)}
@@ -2043,7 +2066,7 @@ async function resyncWeekAssets({ archiveDocs, existingGroceryState = {}, existi
   const prepTasks = flattenPrepSections(prepSections);
   const generatedAt = new Date().toISOString();
   const grocerySnapshot = reconcileGrocerySnapshot({ generatedSections: grocerySections, previousState: existingGroceryState, weekId: week.id });
-  const prepCheckedKeys = reconcilePrepCheckedKeys({ generatedSections: prepSections, previousState: existingPrepState, weekId: week.id });
+  const prepSnapshot = reconcilePrepSnapshot({ generatedSections: prepSections, previousState: existingPrepState, previousGeneratedSections: week.prepSections || [], weekId: week.id });
   const nextWeek = {
     ...week,
     groceryItems,
@@ -2065,11 +2088,10 @@ async function resyncWeekAssets({ archiveDocs, existingGroceryState = {}, existi
       generationVersion: "app-week-assets-resync-v3",
     }),
     savePrepState(week.id, {
-      checkedKeys: prepCheckedKeys,
+      ...prepSnapshot,
       generatedAt,
       generationSource: "firebase-recipes",
-      generationVersion: "app-week-assets-resync-v2",
-      sections: prepSections,
+      generationVersion: "app-week-assets-resync-v3",
     }),
   ]);
 
@@ -2124,7 +2146,7 @@ async function saveWeekMenuRows({ archiveDocs, menuRows, onSaveWorkingWeek, week
   const prepSections = buildPrepSectionsFromMenuRows(menuRows, allRecipeDocs);
   const generatedAt = new Date().toISOString();
   const grocerySnapshot = reconcileGrocerySnapshot({ generatedSections: grocerySections, previousState: existingGroceryState, weekId: week.id });
-  const prepCheckedKeys = reconcilePrepCheckedKeys({ generatedSections: prepSections, previousState: existingPrepState, weekId: week.id });
+  const prepSnapshot = reconcilePrepSnapshot({ generatedSections: prepSections, previousState: existingPrepState, previousGeneratedSections: week.prepSections || [], weekId: week.id });
   const nextWeek = {
     ...week,
     groceryItems: flattenGrocerySections(grocerySections),
@@ -2149,11 +2171,10 @@ async function saveWeekMenuRows({ archiveDocs, menuRows, onSaveWorkingWeek, week
       generationVersion: "inline-week-planner-v2",
     }),
     savePrepState(week.id, {
-      checkedKeys: prepCheckedKeys,
+      ...prepSnapshot,
       generatedAt,
       generationSource: "week-planner",
-      generationVersion: "inline-week-planner-v2",
-      sections: prepSections,
+      generationVersion: "inline-week-planner-v3",
     }),
   ]);
   return nextWeek;
@@ -2258,6 +2279,9 @@ function archiveRecipeToMenuRow(doc, day, role = "complete") {
     Day: day,
     Meal: doc.title,
     mealType: role === "complete" ? "complete_recipe" : "composed",
+    planKind: "cook",
+    leftoverOfBatchId: "",
+    leftoverStorage: "",
     components: [plannedMealComponent(doc, role)],
     "Recipe id": doc.id,
     "Recipe file": fileNameFromPath(doc.path),
@@ -2349,6 +2373,12 @@ function titleOnlyMealToMenuRow(mealTitle, day) {
     Meal: mealTitle.trim(),
     components: [],
     mealType: "title_only",
+    planKind: "",
+    batchId: "",
+    batchServings: null,
+    dinnerServings: null,
+    leftoverOfBatchId: "",
+    leftoverStorage: "",
     "Recipe file": "",
     "Recipe path": "",
     Stage: "Recipe needed",

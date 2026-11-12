@@ -1,3 +1,5 @@
+import { cookingRows, scaleIngredientForBatch } from "./batchPlanning.js";
+
 const rolePriority = { complete: 0, main: 1, side: 2, sauce: 3, bread: 4, dessert: 5, drink: 6 };
 
 export function resolveMealComponentDocs(row, docs) {
@@ -12,8 +14,8 @@ export function resolveMealComponentDocs(row, docs) {
 }
 
 export function collectPlannedMealIngredients(rows, docs, getIngredients = defaultIngredientsForDoc) {
-  return (rows || []).flatMap((row) => resolveMealComponentDocs(row, docs).flatMap((doc) => (
-    (getIngredients(doc) || []).map((ingredient) => ({ doc, ingredient, row }))
+  return cookingRows(rows || []).flatMap((row) => resolveMealComponentDocs(row, docs).flatMap((doc) => (
+    (getIngredients(doc) || []).map((ingredient) => ({ doc, ingredient: scaleIngredientForBatch(row, doc, ingredient), row }))
   )));
 }
 

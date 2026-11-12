@@ -1,6 +1,6 @@
 {
   "name": "family-cookbook",
-  "version": "0.1.32",
+  "version": "0.1.33",
   "private": true,
   "description": "Family cookbook and meal planning app with Firebase-backed planning workflows.",
   "scripts": {

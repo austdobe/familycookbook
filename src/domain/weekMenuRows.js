@@ -6,6 +6,12 @@ export function clearMenuRowForDay(rows, day) {
     return {
       ...row,
       Meal: "",
+      planKind: "",
+      batchId: "",
+      leftoverOfBatchId: "",
+      batchServings: null,
+      dinnerServings: null,
+      leftoverStorage: "",
       components: [],
       mealType: "",
       Notes: "",

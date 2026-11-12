@@ -1,3 +1,5 @@
+import { parsePrepTasks } from "./prepTasks.js";
+
 export function normalizeListIdentity(value) {
   return String(value || "")
     .toLowerCase()
@@ -19,6 +21,7 @@ export function groceryItemStableKey(weekId, section, item) {
 }
 
 export function prepTaskStableKey(weekId, section, task) {
+  if (task?.key?.startsWith(`${weekId}|prep|`)) return task.key;
   return [
     weekId,
     "prep",
@@ -53,14 +56,14 @@ export function reconcilePrepCheckedKeys({ generatedSections = [], parseTasks = 
       const stableKey = prepTaskStableKey(weekId, section, task);
       const legacyKey = [weekId, section.title, task.index, task.title].join("|");
       if ((previousState.checkedKeys || []).includes(stableKey) || (previousState.checkedKeys || []).includes(legacyKey)) {
-        checkedIdentities.add(prepIdentity(section, task));
+        checkedIdentities.add(stableKey);
       }
     });
   });
   const checkedKeys = [];
   generatedSections.forEach((section) => {
     (parseTasks(section.markdown) || []).forEach((task) => {
-      if (checkedIdentities.has(prepIdentity(section, task))) {
+      if (checkedIdentities.has(prepTaskStableKey(weekId, section, task))) {
         checkedKeys.push(prepTaskStableKey(weekId, section, task));
       }
     });
@@ -69,18 +72,7 @@ export function reconcilePrepCheckedKeys({ generatedSections = [], parseTasks = 
 }
 
 export function parsePrepTasksForIdentity(markdown) {
-  const tasks = [];
-  let current = null;
-  String(markdown || "").split("\n").forEach((line) => {
-    const match = line.match(/^\s*-\s*\[[ xX]\]\s+(.+)$/);
-    if (match) {
-      current = { index: tasks.length, title: match[1].trim(), details: [] };
-      tasks.push(current);
-    } else if (current) {
-      current.details.push(line.replace(/^\s{2}/, ""));
-    }
-  });
-  return tasks.map((task) => ({ ...task, details: task.details.join("\n").trim() }));
+  return parsePrepTasks(markdown);
 }
 
 function checkedGroceryIdentities(sections, checkedKeys, weekId) {
@@ -118,14 +110,6 @@ function groceryIdentity(section, item) {
   return item?._manualId
     ? `manual|${item._manualId}`
     : `${normalizeListIdentity(section?.title)}|${normalizeListIdentity(item?.Item)}`;
-}
-
-function prepIdentity(section, task) {
-  return [
-    normalizeListIdentity(section?.title),
-    normalizeListIdentity(task?.title),
-    normalizeListIdentity(prepMealOwnership(task?.details)),
-  ].join("|");
 }
 
 function prepMealOwnership(details) {

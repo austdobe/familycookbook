@@ -60,3 +60,29 @@ test("creates a safe review reminder when a meal has no parsed recipe", () => {
   assert.equal(tasks[0].section, "Cook-Day Reminders");
   assert.match(tasks[0].title, /Review prep needs/);
 });
+
+
+test("batch prep scales ingredients once and emits storage/reheat reminders for linked leftovers", () => {
+  const doc = { id: "chicken", path: "chicken.md", title: "Chicken", recipe: { id: "chicken", servings: 4, ingredients: [{ item: "chicken thighs", quantityText: "2 lb" }] } };
+  const engine = createEngine(doc);
+  const rows = [
+    { Day: "Sunday, November 15", Meal: "Chicken", planKind: "cook", batchId: "one", batchServings: 6, dinnerServings: 2, components: [{ recipeId: "chicken", role: "complete" }] },
+    { Day: "Tuesday, November 17", planKind: "leftover", leftoverOfBatchId: "one", dinnerServings: 2, leftoverStorage: "fridge", components: [{ recipeId: "chicken" }] },
+  ];
+  const tasks = engine.flattenPrepSections(engine.buildPrepSectionsFromMenuRows(rows, [doc]));
+  const proteins = tasks.filter((task) => task.title.startsWith("Confirm protein"));
+  assert.equal(proteins.length, 1);
+  assert.match(proteins[0].ingredients, /3 lb/);
+  assert.ok(tasks.some((task) => task.title.startsWith("Store leftover portions") && task.instructions.includes("within 2 hours")));
+  assert.ok(tasks.some((task) => task.title.startsWith("Reheat leftovers") && task.instructions.includes("165 F")));
+  assert.ok(tasks.some((task) => task.title.startsWith("Check batch quantities")));
+});
+
+test("orphaned or late leftovers generate review warnings rather than new cooking tasks", () => {
+  const doc = { id: "chicken", path: "chicken.md", title: "Chicken", recipe: { servings: 4, ingredients: [{ item: "chicken", quantityText: "2 lb" }] } };
+  const engine = createEngine(doc);
+  const tasks = engine.flattenPrepSections(engine.buildPrepSectionsFromMenuRows([{ Day: "Friday", planKind: "leftover", leftoverOfBatchId: "missing" }], [doc]));
+  assert.equal(tasks.length, 1);
+  assert.match(tasks[0].title, /Review timing/);
+  assert.match(tasks[0].instructions, /missing source/);
+});

@@ -1,3 +1,4 @@
+import { batchScaleFactor, cookingRows, daysBetweenMeals, positivePortions, resolveSourceMeal, scaleIngredientForBatch } from "./batchPlanning.js";
 import { groceryItemWords, grocerySectionForItem } from "./groceryEngine.js";
 import { parsePrepTasks, prepDetailValue } from "./prepTasks.js";
 
@@ -24,8 +25,8 @@ export function createPrepEngine({
   }
   
   function buildPrepSectionsFromMenuRows(menuRows, archiveDocs = []) {
-    const rows = menuRows.filter(hasMeal);
-    if (!rows.length) {
+    const rows = cookingRows(menuRows).filter(hasMeal);
+    if (!rows.length && !menuRows.some((row) => row.planKind === "leftover")) {
       return [];
     }
   
@@ -41,6 +42,34 @@ export function createPrepEngine({
         "Recipe path": doc.path,
       }, [doc]));
     });
+    for (const source of rows) {
+      const leftovers = menuRows.filter((row) => row.planKind === "leftover" && row.leftoverOfBatchId && row.leftoverOfBatchId === source.batchId);
+      if (!leftovers.length) continue;
+      const needsFreezer = leftovers.some((row) => row.leftoverStorage === "freezer" || daysBetweenMeals(source, row) > 4);
+      tasks.push(prepTask({
+        title: `Store leftover portions for ${source.Meal}`,
+        meal: source.Meal,
+        section: "Cook-Day Reminders",
+        ingredients: "Reserved cooked portions from this batch",
+        instructions: `Portion leftovers into shallow containers and refrigerate within 2 hours (1 hour above 90 F / 32 C). ${needsFreezer ? "Freeze portions needed beyond 3-4 days promptly on cook day; do not leave them in the refrigerator until the later meal." : "Label with the cook date and planned leftover meals."}`,
+        storageMethod: "Refrigerator at 40 F / 4 C or below; use refrigerated leftovers within 3-4 days. Freeze portions not needed in that window.",
+        useByDate: `${source.Day}: store after cooking`,
+      }));
+    }
+    for (const row of menuRows.filter((candidate) => candidate.planKind === "leftover")) {
+      const source = resolveSourceMeal(row, menuRows);
+      const days = source ? daysBetweenMeals(source, row) : null;
+      const needsReview = !source || days === null || days < 0 || (days > 4 && row.leftoverStorage !== "freezer");
+      tasks.push(prepTask({
+        title: `${needsReview ? "Review timing before eating" : "Reheat"} leftovers for ${source?.Meal || "missing source meal"} on ${row.Day}`,
+        meal: `Leftovers: ${source?.Meal || "source missing"}`,
+        section: "Cook-Day Reminders",
+        ingredients: `${positivePortions(row.dinnerServings) || "Planned"} leftover portions; no new recipe ingredients`,
+        instructions: `${needsReview ? "Resolve the missing source/date or storage warning in the weekly plan before relying on this meal. " : ""}${row.leftoverStorage === "freezer" ? "Thaw frozen portions in the refrigerator before this meal. " : ""}Reheat cooked leftovers to 165 F / 74 C; keep fresh toppings separate and cold. Do not use leftovers held unsafely.`,
+        storageMethod: row.leftoverStorage === "freezer" ? "Freeze promptly on cook day, then thaw in the refrigerator." : "Refrigerate promptly; use within 3-4 days of cooking.",
+        useByDate: row.Day || "Confirm leftover meal date",
+      }));
+    }
     const sections = [
       "Sunday Prep",
       "Midweek Refresh",
@@ -59,7 +88,8 @@ export function createPrepEngine({
   
   function prepTasksForMenuRow(row, archiveDocs) {
     const doc = findRecipeDocForMenuRow(row, archiveDocs);
-    const recipe = recipeForPrep(doc);
+    const originalRecipe = recipeForPrep(doc);
+    const recipe = originalRecipe ? { ...originalRecipe, ingredients: (originalRecipe.ingredients || []).map((ingredient) => scaleIngredientForBatch(row, doc, ingredient)) } : null;
     const meal = row.Meal || doc?.title || "Planned meal";
     const useByDate = row.Day || recipe?.bestDayToCook || "Planned cook day";
     const dayIndex = weekdayIndex(useByDate);
@@ -77,6 +107,20 @@ export function createPrepEngine({
       })];
     }
   
+    const factor = batchScaleFactor(row, doc);
+    if (factor !== 1) {
+      tasks.push(prepTask({
+        title: `Check batch quantities for ${meal}`,
+        meal,
+        section: "Cook-Day Reminders",
+        ingredients: ingredientAmounts(recipe.ingredients || []),
+        instructions: factor === null
+          ? "This recipe has no unambiguous serving count. Ingredient amounts were not scaled. Confirm the original yield and batch quantities before cooking."
+          : `Ingredient amounts are scaled for ${row.batchServings} batch servings. Written recipe steps may still contain the original quantities; use the scaled ingredient list and review any manual-scaling notes.`,
+        storageMethod: "Keep raw ingredients stored safely until cooking.",
+        useByDate,
+      }));
+    }
     const proteinIngredients = ingredientsByKind(recipe, "protein");
     const sturdyProduce = ingredientsByKind(recipe, "sturdy-produce");
     const delicateItems = ingredientsByKind(recipe, "delicate");
@@ -291,7 +335,7 @@ export function createPrepEngine({
       .map((ingredient) => {
         const quantity = ingredient.quantityText || ingredient.Quantity || "";
         const item = ingredient.item || ingredient.Ingredient || ingredient.Item || "";
-        return [quantity, item].filter(Boolean).join(" ");
+        return [quantity, item, ingredient._scalingWarning ? `[${ingredient._scalingWarning}]` : ""].filter(Boolean).join(" ");
       })
       .filter(Boolean)
       .join(", ");

@@ -1,7 +1,10 @@
-import { doc, onSnapshot, setDoc } from "firebase/firestore";
+import { cloudWrites } from "./cloudWrite.js";
+import { doc, onSnapshot } from "firebase/firestore";
 import { getFirebaseClient } from "./firebase.js";
 
 const householdId = import.meta.env.VITE_FIREBASE_HOUSEHOLD_ID || "family";
+
+const pendingKey = (recipeId) => `feedback:${householdId}:${recipeId}`;
 
 function emptyFeedback() {
   return {
@@ -45,6 +48,7 @@ export function subscribeRecipeFeedback(recipeId, callback) {
   let unsubscribeFirebase = null;
   let cancelled = false;
   const emitLocal = () => callback(readLocal(recipeId));
+  window.addEventListener("family-cookbook-recipe-feedback", emitLocal);
 
   feedbackRef(recipeId)
     .then((stateRef) => {
@@ -54,23 +58,21 @@ export function subscribeRecipeFeedback(recipeId, callback) {
 
       if (!stateRef) {
         emitLocal();
-        window.addEventListener("family-cookbook-recipe-feedback", emitLocal);
         return;
       }
 
       unsubscribeFirebase = onSnapshot(stateRef, (snapshot) => {
+        if (cloudWrites.hasPending(pendingKey(recipeId))) { emitLocal(); return; }
         const nextFeedback = { ...emptyFeedback(), ...(snapshot.exists() ? snapshot.data() : {}) };
         localStorage.setItem(storageKey(recipeId), JSON.stringify(nextFeedback));
         callback(nextFeedback);
       }, () => {
         emitLocal();
-        window.addEventListener("family-cookbook-recipe-feedback", emitLocal);
       });
     })
     .catch(() => {
       if (!cancelled) {
         emitLocal();
-        window.addEventListener("family-cookbook-recipe-feedback", emitLocal);
       }
     });
 
@@ -95,15 +97,9 @@ export async function saveRecipeFeedback(recipeId, recipePath, feedback) {
     recipePath,
     updatedAt: new Date().toISOString(),
   };
-  const stateRef = await feedbackRef(recipeId).catch(() => null);
-  if (!stateRef) {
-    writeLocal(recipeId, nextFeedback);
-    return;
-  }
-  localStorage.setItem(storageKey(recipeId), JSON.stringify(nextFeedback));
-  try {
-    await setDoc(stateRef, nextFeedback, { merge: true });
-  } catch {
-    writeLocal(recipeId, nextFeedback);
-  }
+  return cloudWrites.save({
+    key: pendingKey(recipeId), label: "Recipe feedback",
+    localSave: () => writeLocal(recipeId, nextFeedback),
+    operations: [{ type: "set", path: ["households", householdId, "recipeFeedback", encodeURIComponent(recipeId)], data: nextFeedback }],
+  });
 }

@@ -1,7 +1,9 @@
-import { deleteDoc, doc, getDoc, onSnapshot, setDoc } from "firebase/firestore";
+import { cloudWrites } from "./cloudWrite.js";
+import { doc, getDoc, onSnapshot } from "firebase/firestore";
 import { firebaseIsConfigured, getFirebaseClient } from "./firebase.js";
 
 const householdId = import.meta.env.VITE_FIREBASE_HOUSEHOLD_ID || "family";
+const pendingKey = `workingWeeks:${householdId}`;
 const eventName = "family-cookbook-working-weeks";
 const storageKey = "familyCookbook:workingWeeks:v1";
 
@@ -34,19 +36,12 @@ async function getStateRef() {
   return doc(client.db, "households", householdId, "workingWeeks", "index");
 }
 
-async function getWeekRef(weekId) {
-  const client = await getFirebaseClient();
-  if (!client) {
-    return null;
-  }
-  return doc(client.db, "households", householdId, "weeks", weekId);
-}
-
 export function subscribeWorkingWeeks(callback) {
   let unsubscribeFirebase = null;
   let cancelled = false;
 
   const emitLocal = () => callback(readLocalState().weeks || []);
+  window.addEventListener(eventName, emitLocal);
 
   getStateRef()
     .then((stateRef) => {
@@ -56,23 +51,21 @@ export function subscribeWorkingWeeks(callback) {
 
       if (!stateRef) {
         emitLocal();
-        window.addEventListener(eventName, emitLocal);
         return;
       }
 
       unsubscribeFirebase = onSnapshot(stateRef, (snapshot) => {
+        if (cloudWrites.hasPending(pendingKey)) { emitLocal(); return; }
         const nextState = { ...emptyState(), ...(snapshot.exists() ? snapshot.data() : {}) };
         mirrorLocalState(nextState);
         callback(nextState.weeks || []);
       }, () => {
         emitLocal();
-        window.addEventListener(eventName, emitLocal);
       });
     })
     .catch(() => {
       if (!cancelled) {
         emitLocal();
-        window.addEventListener(eventName, emitLocal);
       }
     });
 
@@ -89,28 +82,19 @@ export async function upsertWorkingWeek(week) {
   const current = readLocalState();
   const weeks = upsertWeek(current.weeks || [], week);
   const nextState = { weeks, updatedAt: new Date().toISOString() };
-  const [stateRef, weekRef] = await Promise.all([
-    getStateRef().catch(() => null),
-    getWeekRef(week.id).catch(() => null),
-  ]);
-  if (!stateRef) {
-    writeLocalState(nextState);
-    return weeks;
-  }
-
-  mirrorLocalState(nextState);
-  try {
-    await Promise.all([
-      setDoc(stateRef, nextState, { merge: true }),
-      weekRef ? setDoc(weekRef, weekDocumentPayload(week), { merge: true }) : Promise.resolve(),
-    ]);
-  } catch {
-    writeLocalState(nextState);
-  }
+  await cloudWrites.save({
+    key: pendingKey, label: "Working weeks",
+    localSave: () => writeLocalState(nextState),
+    operations: [
+      { type: "set", path: ["households", householdId, "workingWeeks", "index"], data: nextState },
+      { type: "set", path: ["households", householdId, "weeks", week.id], data: weekDocumentPayload(week) },
+    ],
+  });
   return weeks;
 }
 
 export async function syncWorkingWeeksFromFirebase() {
+  cloudWrites.assertNoPending(pendingKey);
   if (!firebaseIsConfigured()) {
     throw new Error("Firebase is not configured for this build.");
   }
@@ -119,6 +103,7 @@ export async function syncWorkingWeeksFromFirebase() {
     throw new Error("Firebase is unavailable. Check the app connection and Firebase settings.");
   }
   const snapshot = await getDoc(stateRef);
+  cloudWrites.assertNoPending(pendingKey);
   const nextState = { ...emptyState(), ...(snapshot.exists() ? snapshot.data() : {}) };
   mirrorLocalState(nextState);
   window.dispatchEvent(new CustomEvent(eventName));
@@ -129,24 +114,14 @@ export async function deleteWorkingWeek(weekId) {
   const current = readLocalState();
   const weeks = (current.weeks || []).filter((week) => week.id !== weekId);
   const nextState = { weeks, updatedAt: new Date().toISOString() };
-  const [stateRef, weekRef] = await Promise.all([
-    getStateRef().catch(() => null),
-    getWeekRef(weekId).catch(() => null),
-  ]);
-  if (!stateRef) {
-    writeLocalState(nextState);
-    return weeks;
-  }
-
-  mirrorLocalState(nextState);
-  try {
-    await Promise.all([
-      setDoc(stateRef, nextState, { merge: true }),
-      weekRef ? deleteDoc(weekRef) : Promise.resolve(),
-    ]);
-  } catch {
-    writeLocalState(nextState);
-  }
+  await cloudWrites.save({
+    key: pendingKey, label: "Working weeks",
+    localSave: () => writeLocalState(nextState),
+    operations: [
+      { type: "set", path: ["households", householdId, "workingWeeks", "index"], data: nextState },
+      { type: "delete", path: ["households", householdId, "weeks", weekId] },
+    ],
+  });
   return weeks;
 }
 

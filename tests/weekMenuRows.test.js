@@ -24,3 +24,12 @@ test("clearing a menu row removes current and legacy recipe references", () => {
   assert.equal(cleared["Recipe file"], "");
   assert.equal(unchanged, otherRow);
 });
+
+
+test("clearing a cook or leftover removes batch links and portion settings", () => {
+  const [row] = clearMenuRowForDay([{ Day: "Monday", Meal: "Leftovers", planKind: "leftover", batchId: "old", leftoverOfBatchId: "batch", batchServings: 6, dinnerServings: 2, leftoverStorage: "fridge" }], "Monday");
+  assert.equal(row.batchId, "");
+  assert.equal(row.leftoverOfBatchId, "");
+  assert.equal(row.planKind, "");
+  assert.equal(row.batchServings, null);
+});

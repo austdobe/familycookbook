@@ -1,11 +1,18 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { prepTaskStableKey } from "../domain/listReconciliation.js";
 import { parsePrepTasks, prepDetailValue } from "../domain/prepTasks.js";
+import { addPrepTaskState, updatePrepTaskState, removePrepTaskState, initializePrepSnapshot, prepSectionsForState } from "../domain/prepSnapshot.js";
 import { markdownToHtml } from "../services/markdown.js";
-import { clearPrepState, savePrepState, subscribePrepState, togglePrepTask } from "../services/prepStore.js";
+import { savePrepState, subscribePrepState } from "../services/prepStore.js";
 
 export function PrepView({ isSealed = false, search, week }) {
   const [prepState, setPrepState] = useState({ checkedKeys: [], sections: [] });
+  const [loadedWeekId, setLoadedWeekId] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const savingRef = useRef(false);
+  const currentWeekId = useRef(week?.id);
+  currentWeekId.current = week?.id;
   const [prepDialogOpen, setPrepDialogOpen] = useState(false);
   const [editingPrepKey, setEditingPrepKey] = useState("");
   const [prepForm, setPrepForm] = useState(emptyPrepForm());
@@ -14,8 +21,15 @@ export function PrepView({ isSealed = false, search, week }) {
     if (!week) {
       return undefined;
     }
-    return subscribePrepState(week.id, setPrepState);
-  }, [week]);
+    setPrepDialogOpen(false);
+    setEditingPrepKey("");
+    setSaveError("");
+    return subscribePrepState(week.id, (state) => {
+      if (currentWeekId.current !== week.id) return;
+      setPrepState(state);
+      setLoadedWeekId(week.id);
+    });
+  }, [week?.id]);
 
   useEffect(() => {
     if (!prepDialogOpen) {
@@ -46,10 +60,29 @@ export function PrepView({ isSealed = false, search, week }) {
     return <div className="empty">No prep guide found.</div>;
   }
 
-  const sourcePrepSections = prepState.sections?.length ? prepState.sections : week.prepSections;
+  if (loadedWeekId !== week.id) return <div className="empty" role="status">Loading prep checklist...</div>;
+
+  const sourcePrepSections = prepSectionsForState(prepState, week.prepSections);
+  const editablePrepState = initializePrepSnapshot({ currentState: prepState, sourceSections: sourcePrepSections, previousGeneratedSections: week.prepSections, weekId: week.id });
   const sections = sourcePrepSections.filter((section) => matchesSearch(`${section.title} ${section.markdown}`, search));
   const checkedKeys = new Set(prepState.checkedKeys || []);
   const sectionOptions = prepSectionOptions(sourcePrepSections);
+  const persistChange = async (change, close = false) => {
+    if (isSealed || savingRef.current) return;
+    const savingWeekId = week.id;
+    savingRef.current = true;
+    setSaving(true);
+    setSaveError("");
+    try {
+      await savePrepState(savingWeekId, change());
+      if (close && currentWeekId.current === savingWeekId) closePrepDialog();
+    } catch (error) {
+      if (currentWeekId.current === savingWeekId) setSaveError(error.message || "Unable to save prep changes. Please try again.");
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  };
   const closePrepDialog = () => {
     setPrepDialogOpen(false);
     setEditingPrepKey("");
@@ -80,24 +113,22 @@ export function PrepView({ isSealed = false, search, week }) {
       return;
     }
 
-    if (editingPrepKey) {
-      await savePrepState(week.id, updatePrepTaskState(prepState, sourcePrepSections, editingPrepKey, prepForm));
-    } else {
-      await savePrepState(week.id, addPrepTaskState(prepState, sourcePrepSections, prepForm));
-    }
-    closePrepDialog();
+    await persistChange(() => editingPrepKey
+      ? updatePrepTaskState(editablePrepState, sourcePrepSections, editingPrepKey, prepForm)
+      : addPrepTaskState(editablePrepState, sourcePrepSections, prepForm, week.id), true);
   };
 
   return (
     <div className="stack">
+      {saveError && !prepDialogOpen ? <p role="alert">{saveError}</p> : null}
       <section className="card prep-toolbar">
         <div>
           <h3>Prep Checklist</h3>
           <p>{isSealed ? "This prep list is sealed for this week." : "Prep checks stay saved for this week."}</p>
         </div>
         <div className="grocery-toolbar-actions">
-          <button className="quiet-button" disabled={isSealed} onClick={openAddPrepDialog} type="button">Add Prep</button>
-          <button className="quiet-button" disabled={isSealed} onClick={() => clearPrepState(week.id)} type="button">Clear Checks</button>
+          <button className="quiet-button" disabled={isSealed || saving} onClick={openAddPrepDialog} type="button">Add Prep</button>
+          <button className="quiet-button" disabled={isSealed || saving} onClick={() => persistChange(() => ({ ...editablePrepState, checkedKeys: [] }))} type="button">Clear Checks</button>
         </div>
       </section>
 
@@ -106,9 +137,14 @@ export function PrepView({ isSealed = false, search, week }) {
           checkedKeys={checkedKeys}
           key={section.title}
           onEdit={(task) => openEditPrepDialog(section, task)}
-          onRemove={(task) => !isSealed && savePrepState(week.id, removePrepTaskState(prepState, sourcePrepSections, prepTaskKey(week, section, task)))}
-          onToggle={(task, checked) => !isSealed && togglePrepTask(week.id, prepTaskKey(week, section, task), checked)}
-          isSealed={isSealed}
+          onRemove={(task) => persistChange(() => removePrepTaskState(editablePrepState, sourcePrepSections, prepTaskKey(week, section, task)))}
+          onToggle={(task, checked) => persistChange(() => {
+            const keys = new Set(editablePrepState.checkedKeys || []);
+            const key = prepTaskKey(week, section, task);
+            if (checked) keys.add(key); else keys.delete(key);
+            return { ...editablePrepState, checkedKeys: [...keys] };
+          })}
+          isSealed={isSealed || saving}
           section={section}
           week={week}
         />
@@ -163,16 +199,17 @@ export function PrepView({ isSealed = false, search, week }) {
                 value={prepForm.details}
               />
             </label>
+            {saveError ? <p role="alert">{saveError}</p> : null}
             <div className="dialog-actions">
               {editingPrepKey ? (
                 <button
                   className="mini-button"
+                  disabled={saving}
                   onClick={async () => {
                     if (isSealed) {
                       return;
                     }
-                    await savePrepState(week.id, removePrepTaskState(prepState, sourcePrepSections, editingPrepKey));
-                    closePrepDialog();
+                    await persistChange(() => removePrepTaskState(editablePrepState, sourcePrepSections, editingPrepKey), true);
                   }}
                   type="button"
                 >
@@ -180,7 +217,7 @@ export function PrepView({ isSealed = false, search, week }) {
                 </button>
               ) : null}
               <button className="quiet-button" onClick={closePrepDialog} type="button">Cancel</button>
-              <button className="primary-button" type="submit">{editingPrepKey ? "Save" : "Add"}</button>
+              <button className="primary-button" disabled={saving} type="submit">{saving ? "Saving..." : editingPrepKey ? "Save" : "Add"}</button>
             </div>
           </form>
         </div>
@@ -241,61 +278,6 @@ function PrepSection({ checkedKeys, isSealed = false, onEdit, onRemove, onToggle
   );
 }
 
-function addPrepTaskState(currentState, sourceSections, form) {
-  const nextSections = cleanPrepSections(sourceSections);
-  const targetSection = ensurePrepSection(nextSections, form.section || "Sunday Prep");
-  const tasks = parsePrepTasks(targetSection.markdown);
-  targetSection.markdown = serializePrepTasks([...tasks, prepTaskFromForm(form)]);
-  return {
-    ...currentState,
-    sections: removeEmptyPrepSections(nextSections),
-  };
-}
-
-function updatePrepTaskState(currentState, sourceSections, taskKey, form) {
-  const nextSections = cleanPrepSections(sourceSections);
-  const weekId = taskKey.split("|")[0] || "";
-  let editedTask = null;
-
-  nextSections.forEach((section) => {
-    const tasks = parsePrepTasks(section.markdown);
-    const remainingTasks = tasks.filter((task) => {
-      if (prepTaskKeyFromParts(weekId, section.title, task.index, task.title) !== taskKey) {
-        return true;
-      }
-      editedTask = { ...task, ...prepTaskFromForm(form) };
-      return false;
-    });
-    section.markdown = serializePrepTasks(remainingTasks);
-  });
-
-  if (editedTask) {
-    const targetSection = ensurePrepSection(nextSections, form.section || "Sunday Prep");
-    targetSection.markdown = serializePrepTasks([...parsePrepTasks(targetSection.markdown), editedTask]);
-  }
-
-  return {
-    ...currentState,
-    checkedKeys: (currentState.checkedKeys || []).filter((key) => key !== taskKey),
-    sections: removeEmptyPrepSections(nextSections),
-  };
-}
-
-function removePrepTaskState(currentState, sourceSections, taskKey) {
-  const weekId = taskKey.split("|")[0] || "";
-  const nextSections = cleanPrepSections(sourceSections).map((section) => {
-    const tasks = parsePrepTasks(section.markdown)
-      .filter((task) => prepTaskKeyFromParts(weekId, section.title, task.index, task.title) !== taskKey);
-    return { ...section, markdown: serializePrepTasks(tasks) };
-  });
-
-  return {
-    ...currentState,
-    checkedKeys: (currentState.checkedKeys || []).filter((key) => key !== taskKey),
-    sections: removeEmptyPrepSections(nextSections),
-  };
-}
-
 function prepSectionOptions(sections = []) {
   return uniqueValues([
     ...sections.map((section) => section.title).filter(Boolean),
@@ -304,52 +286,6 @@ function prepSectionOptions(sections = []) {
     "Cook-Day Reminders",
     "Do Not Prep Ahead",
   ]);
-}
-
-function cleanPrepSections(sections = []) {
-  return sections.map((section) => ({
-    title: section.title || "Prep",
-    markdown: section.markdown || "",
-  }));
-}
-
-function ensurePrepSection(sections, title) {
-  const sectionTitle = title || "Prep";
-  let section = sections.find((candidate) => normalizeSectionName(candidate.title) === normalizeSectionName(sectionTitle));
-  if (!section) {
-    section = { title: sectionTitle, markdown: "" };
-    sections.push(section);
-  }
-  return section;
-}
-
-function prepTaskFromForm(form) {
-  return {
-    details: form.details.trim(),
-    title: form.title.trim(),
-  };
-}
-
-function serializePrepTasks(tasks) {
-  return tasks
-    .map((task) => {
-      const details = String(task.details || "")
-        .trim()
-        .split("\n")
-        .filter((line, index, lines) => line.trim() || index < lines.length - 1)
-        .map((line) => `  ${line}`)
-        .join("\n");
-      return [`- [ ] ${task.title}`, details].filter(Boolean).join("\n");
-    })
-    .join("\n");
-}
-
-function removeEmptyPrepSections(sections) {
-  return sections.filter((section) => parsePrepTasks(section.markdown).length || section.markdown.trim());
-}
-
-function prepTaskKeyFromParts(weekId, sectionTitle, taskIndex, taskTitle) {
-  return [weekId, sectionTitle, taskIndex, taskTitle].join("|");
 }
 
 function emptyPrepForm(section = "Sunday Prep") {
@@ -375,10 +311,6 @@ function prepTaskKey(week, section, task) {
 
 function matchesSearch(text, search) {
   return !search || String(text || "").toLowerCase().includes(String(search).toLowerCase());
-}
-
-function normalizeSectionName(value) {
-  return String(value || "").trim().toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
 function uniqueValues(values) { return [...new Set(values)]; }

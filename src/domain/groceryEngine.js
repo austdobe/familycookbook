@@ -14,7 +14,7 @@ export function buildGrocerySectionsFromMenuRows(menuRows, archiveDocs, ingredie
     grouped.get(sectionTitle).items.push({
       Quantity: ingredientRow.Quantity || "",
       Item: item,
-      "Preferred version/type": ingredientRow["Preferred version/type"] || ingredientRow.Preferred || "",
+      "Preferred version/type": [ingredientRow["Preferred version/type"] || ingredientRow.Preferred || "", ingredientRow._scalingWarning].filter(Boolean).join("; "),
       "Acceptable alternatives": ingredientRow["Acceptable alternatives"] || ingredientRow.Alternatives || "",
       Recipe: doc.title,
       _recipeRefs: [doc.path],

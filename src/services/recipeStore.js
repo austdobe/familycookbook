@@ -1,7 +1,10 @@
-import { collection, doc, getDocs, onSnapshot, setDoc } from "firebase/firestore";
+import { cloudWrites } from "./cloudWrite.js";
+import { collection, getDocs, onSnapshot } from "firebase/firestore";
 import { firebaseIsConfigured, getFirebaseClient } from "./firebase.js";
 
 const householdId = import.meta.env.VITE_FIREBASE_HOUSEHOLD_ID || "family";
+const pendingPrefix = `recipes:${householdId}:`;
+const pendingKey = (recipeId) => `${pendingPrefix}${recipeId}`;
 const eventName = "family-cookbook-recipes";
 const storageKey = "familyCookbook:recipes:v1";
 
@@ -34,19 +37,12 @@ async function getRecipesCollectionRef() {
   return collection(client.db, "households", householdId, "recipes");
 }
 
-async function getRecipeRef(recipeId) {
-  const client = await getFirebaseClient();
-  if (!client) {
-    return null;
-  }
-  return doc(client.db, "households", householdId, "recipes", recipeId);
-}
-
 export function subscribeRecipes(callback) {
   let unsubscribeFirebase = null;
   let cancelled = false;
 
   const emitLocal = () => callback(toArchiveDocs(readLocalState().recipes || []));
+  window.addEventListener(eventName, emitLocal);
 
   getRecipesCollectionRef()
     .then((recipesRef) => {
@@ -56,11 +52,11 @@ export function subscribeRecipes(callback) {
 
       if (!recipesRef) {
         emitLocal();
-        window.addEventListener(eventName, emitLocal);
         return;
       }
 
       unsubscribeFirebase = onSnapshot(recipesRef, (snapshot) => {
+        if (cloudWrites.hasPendingPrefix(pendingPrefix)) { emitLocal(); return; }
         const recipes = snapshot.docs.map((snapshotDoc) => ({
           id: snapshotDoc.id,
           ...snapshotDoc.data(),
@@ -70,13 +66,11 @@ export function subscribeRecipes(callback) {
         callback(toArchiveDocs(recipes));
       }, () => {
         emitLocal();
-        window.addEventListener(eventName, emitLocal);
       });
     })
     .catch(() => {
       if (!cancelled) {
         emitLocal();
-        window.addEventListener(eventName, emitLocal);
       }
     });
 
@@ -98,23 +92,16 @@ export async function saveRecipe(recipe) {
     createdAt: recipe.createdAt || now,
     updatedAt: now,
   };
-  const recipeRef = await getRecipeRef(recipeId).catch(() => null);
-
-  if (!recipeRef) {
-    upsertLocalRecipe(nextRecipe);
-    return nextRecipe;
-  }
-
-  mirrorUpsertLocalRecipe(nextRecipe);
-  try {
-    await setDoc(recipeRef, nextRecipe, { merge: true });
-  } catch {
-    upsertLocalRecipe(nextRecipe);
-  }
+  await cloudWrites.save({
+    key: pendingKey(recipeId), label: "Recipe: " + (nextRecipe.title || recipeId),
+    localSave: () => upsertLocalRecipe(nextRecipe),
+    operations: [{ type: "set", path: ["households", householdId, "recipes", recipeId], data: nextRecipe }],
+  });
   return nextRecipe;
 }
 
 export async function syncRecipesFromFirebase() {
+  cloudWrites.assertNoPending(pendingPrefix, true);
   if (!firebaseIsConfigured()) {
     throw new Error("Firebase is not configured for this build.");
   }
@@ -123,6 +110,7 @@ export async function syncRecipesFromFirebase() {
     throw new Error("Firebase is unavailable. Check the app connection and Firebase settings.");
   }
   const snapshot = await getDocs(recipesRef);
+  cloudWrites.assertNoPending(pendingPrefix, true);
   const recipes = snapshot.docs.map((snapshotDoc) => ({
     id: snapshotDoc.id,
     ...snapshotDoc.data(),
@@ -139,15 +127,6 @@ export async function updateRecipe(recipeId, patch) {
 function upsertLocalRecipe(recipe) {
   const current = readLocalState();
   writeLocalState({
-    ...current,
-    recipes: upsertRecipe(current.recipes || [], recipe),
-    updatedAt: new Date().toISOString(),
-  });
-}
-
-function mirrorUpsertLocalRecipe(recipe) {
-  const current = readLocalState();
-  mirrorLocalState({
     ...current,
     recipes: upsertRecipe(current.recipes || [], recipe),
     updatedAt: new Date().toISOString(),

@@ -9,6 +9,11 @@ export function parsePrepTasks(markdown) {
       tasks.push(current);
       return;
     }
+    const keyMatch = line.trim().match(/^<!-- prep-key:([^ ]+) -->$/);
+    if (current && keyMatch) {
+      try { current.key = decodeURIComponent(keyMatch[1]); } catch { /* Ignore malformed metadata. */ }
+      return;
+    }
     if (current) current.details.push(line.replace(/^ {2}/, ""));
   });
 
@@ -19,4 +24,13 @@ export function prepDetailValue(details, label) {
   const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = String(details || "").match(new RegExp(`^-\\s+${escapedLabel}:\\s*(.+)$`, "im"));
   return match ? match[1].trim() : "";
+}
+
+// Persist identity separately from user-editable task text.
+export function serializePrepTasks(tasks) {
+  return tasks.map((task) => [
+    `- [ ] ${task.title}`,
+    task.key ? `  <!-- prep-key:${encodeURIComponent(task.key)} -->` : "",
+    String(task.details || "").trim().split("\n").filter((line, index, lines) => line.trim() || index < lines.length - 1).map((line) => `  ${line}`).join("\n"),
+  ].filter(Boolean).join("\n")).join("\n");
 }

@@ -238,6 +238,7 @@ export function DayCard({
         <span className="drag-hint">{isSealed ? "Sealed" : isRecipeDropTarget ? "Drop recipe" : canDrag ? "Drag" : "Drop here"}</span>
       </div>
       <h3>{row.Meal || "Open"}</h3>
+      {row.planKind === "leftover" ? <p className="batch-card-note">{row.dinnerServings || 2} leftover portions · {row.leftoverStorage === "freezer" ? "Frozen, then thaw" : "Refrigerated"}</p> : row.batchServings ? <p className="batch-card-note">Cook {row.batchServings} portions · Eat {row.dinnerServings || 2} tonight</p> : null}
       {componentDocs.length > 1 ? (
         <div className="day-card-recipes">
           <button

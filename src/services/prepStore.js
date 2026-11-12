@@ -1,8 +1,11 @@
-import { deleteDoc, doc, getDoc, onSnapshot, setDoc } from "firebase/firestore";
+import { cloudWrites } from "./cloudWrite.js";
+import { doc, getDoc, onSnapshot } from "firebase/firestore";
 import { firebaseIsConfigured, getFirebaseClient } from "./firebase.js";
 import { parsePrepTasksForIdentity, reconcilePrepCheckedKeys } from "../domain/listReconciliation.js";
 
 const householdId = import.meta.env.VITE_FIREBASE_HOUSEHOLD_ID || "family";
+
+const pendingKey = (weekId) => `prep:${householdId}:${weekId}`;
 
 function emptyState() {
   return { checkedKeys: [], sections: [] };
@@ -42,6 +45,7 @@ export function subscribePrepState(weekId, callback) {
   let cancelled = false;
 
   const emitLocal = () => callback(readLocalState(weekId));
+  window.addEventListener("family-cookbook-prep", emitLocal);
 
   getStateRef(weekId)
     .then((stateRef) => {
@@ -51,23 +55,21 @@ export function subscribePrepState(weekId, callback) {
 
       if (!stateRef) {
         emitLocal();
-        window.addEventListener("family-cookbook-prep", emitLocal);
         return;
       }
 
       unsubscribeFirebase = onSnapshot(stateRef, (snapshot) => {
+        if (cloudWrites.hasPending(pendingKey(weekId))) { emitLocal(); return; }
         const nextState = normalizeCheckedKeys(weekId, { ...emptyState(), ...(snapshot.exists() ? snapshot.data() : {}) });
         mirrorLocalState(weekId, nextState);
         callback(nextState);
       }, () => {
         emitLocal();
-        window.addEventListener("family-cookbook-prep", emitLocal);
       });
     })
     .catch(() => {
       if (!cancelled) {
         emitLocal();
-        window.addEventListener("family-cookbook-prep", emitLocal);
       }
     });
 
@@ -82,20 +84,15 @@ export function subscribePrepState(weekId, callback) {
 
 export async function savePrepState(weekId, nextState) {
   const state = { ...emptyState(), ...nextState, updatedAt: new Date().toISOString() };
-  const stateRef = await getStateRef(weekId).catch(() => null);
-  if (!stateRef) {
-    writeLocalState(weekId, state);
-    return;
-  }
-  mirrorLocalState(weekId, state);
-  try {
-    await setDoc(stateRef, state, { merge: true });
-  } catch {
-    writeLocalState(weekId, state);
-  }
+  return cloudWrites.save({
+    key: pendingKey(weekId), label: "prep " + weekId,
+    localSave: () => writeLocalState(weekId, state),
+    operations: [{ type: "set", path: ["households", householdId, "prepWeeks", weekId], data: state }],
+  });
 }
 
 export async function syncPrepStateFromFirebase(weekId) {
+  cloudWrites.assertNoPending(pendingKey(weekId));
   if (!firebaseIsConfigured()) {
     throw new Error("Firebase is not configured for this build.");
   }
@@ -104,6 +101,7 @@ export async function syncPrepStateFromFirebase(weekId) {
     throw new Error("Firebase is unavailable. Check the app connection and Firebase settings.");
   }
   const snapshot = await getDoc(stateRef);
+  cloudWrites.assertNoPending(pendingKey(weekId));
   const nextState = { ...emptyState(), ...(snapshot.exists() ? snapshot.data() : {}) };
   mirrorLocalState(weekId, nextState);
   window.dispatchEvent(new CustomEvent("family-cookbook-prep", { detail: { weekId } }));
@@ -111,17 +109,14 @@ export async function syncPrepStateFromFirebase(weekId) {
 }
 
 export async function deletePrepState(weekId) {
-  localStorage.removeItem(storageKey(weekId));
-  window.dispatchEvent(new CustomEvent("family-cookbook-prep", { detail: { weekId } }));
-  const stateRef = await getStateRef(weekId).catch(() => null);
-  if (!stateRef) {
-    return;
-  }
-  try {
-    await deleteDoc(stateRef);
-  } catch {
-    // Local state is already removed; ignore remote cleanup failures.
-  }
+  return cloudWrites.save({
+    key: pendingKey(weekId), label: "Delete prep " + weekId,
+    localSave: () => {
+      localStorage.removeItem(storageKey(weekId));
+      window.dispatchEvent(new CustomEvent("family-cookbook-prep", { detail: { weekId } }));
+    },
+    operations: [{ type: "delete", path: ["households", householdId, "prepWeeks", weekId] }],
+  });
 }
 
 export async function togglePrepTask(weekId, taskKey, checked) {
