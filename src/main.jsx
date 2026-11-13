@@ -972,6 +972,10 @@ function WeekView({
             if (doc.missingCookingRecipe) return { id: doc.id, title: doc.title, steps: [], ingredients: [] };
             const factor = selectedCookRow ? batchScaleFactor(selectedCookRow, doc) : 1;
             return { id: doc.id, title: doc.title, steps: cookingStepsForRecipe(doc),
+              role: mealComponentsForRow(selectedCookRow).find((component) => component.recipeId === doc.id || component.recipeId === doc.recipe?.id)?.role,
+              timing: { totalTime: doc.recipe?.totalTime || planningSummaryValue(doc.markdown, "Estimated total time") || planningSummaryValue(doc.markdown, "Total time"),
+                prepTime: doc.recipe?.prepTime || planningSummaryValue(doc.markdown, "Estimated prep time") || planningSummaryValue(doc.markdown, "Prep time"),
+                cookTime: doc.recipe?.cookTime || planningSummaryValue(doc.markdown, "Estimated cook time") || planningSummaryValue(doc.markdown, "Cook time") },
               ingredients: recipeIngredientsForEditing(doc).map((ingredient) => ({ ...ingredient, quantityText: scaleQuantityText(ingredient.quantityText, factor || 1) })),
               batchNote: factor === null ? "Recipe serving count is missing. Ingredient amounts are unscaled; check the batch manually." : factor !== 1 ? `Ingredients scaled ${Number(factor.toFixed(3))}x. Directions retain original amounts; use this ingredient list. Times and temperatures are not multiplied.` : "",
             };

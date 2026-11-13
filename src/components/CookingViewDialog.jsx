@@ -23,13 +23,16 @@ export function CookingViewDialog({ components = [], ingredients = [], steps = [
   const [storageError, setStorageError] = useState("");
   const [now, setNow] = useState(Date.now());
   const [showTimeline, setShowTimeline] = useState(false);
+  const [preferredDish, setPreferredDish] = useState("");
   const [restart, setRestart] = useState(false);
   const [skipId, setSkipId] = useState("");
   const [prep, setPrep] = useState(null);
   const dialogRef = useRef(null);
+  const nextActionRef = useRef(null);
+  const previousTask = useRef(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
-  useEffect(() => { setSession(readSession(storageKey)); setSavedKey(storageKey); setRestart(false); setSkipId(""); setShowTimeline(false); }, [storageKey]);
+  useEffect(() => { setSession(readSession(storageKey)); setSavedKey(storageKey); setRestart(false); setSkipId(""); setShowTimeline(false); setPreferredDish(""); }, [storageKey]);
   useEffect(() => {
     if (savedKey !== storageKey) return;
     try { localStorage.setItem(storageKey, JSON.stringify(session)); setStorageError(""); }
@@ -47,7 +50,7 @@ export function CookingViewDialog({ components = [], ingredients = [], steps = [
     const onKey = (event) => {
       if (event.key === "Escape") closeRef.current();
       if (event.key !== "Tab") return;
-      const focusable = [...(dialogRef.current?.querySelectorAll('button:not(:disabled), input:not(:disabled), summary, [tabindex="0"]') || [])].filter((element) => element.getClientRects().length);
+      const focusable = [...(dialogRef.current?.querySelectorAll('button:not(:disabled), input:not(:disabled), summary, select, [tabindex="0"]') || [])].filter((element) => element.getClientRects().length);
       const first = focusable[0], last = focusable.at(-1);
       if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) { event.preventDefault(); last?.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
@@ -59,46 +62,53 @@ export function CookingViewDialog({ components = [], ingredients = [], steps = [
   const states = guidance.states;
   const targetMinutes = session.serveAt ? (new Date(session.serveAt).getTime() - now) / 60000 : null;
   const update = (id, status) => setSession((current) => ({ ...current, states: changeCookingTaskState(plan, current.states || {}, id, status) }));
-  const focus = guidance.inProgress.find((task) => !(states[task.id]?.handsOff ?? task.passive)) || guidance.nextTask;
+  const focus = guidance.inProgress.find((task) => !(states[task.id]?.handsOff ?? task.passive)) || guidance.availableTasks.find((task) => task.componentId === preferredDish) || guidance.nextTask;
+  useEffect(() => {
+    if (previousTask.current && previousTask.current !== focus?.id) nextActionRef.current?.focus();
+    previousTask.current = focus?.id;
+  }, [focus?.id]);
   const checked = session.checkedIngredients || [];
   const groups = components.length ? components : [{ id: recipeId, title, ingredients }];
   const markIngredient = (key) => setSession((current) => ({ ...current, checkedIngredients: (current.checkedIngredients || []).includes(key) ? current.checkedIngredients.filter((id) => id !== key) : [...(current.checkedIngredients || []), key] }));
-  const taskControls = (task) => <div className="cooking-task-actions">
-    {states[task.id]?.status !== "started" ? <button type="button" onClick={() => update(task.id, "started")}>Start / already started</button> : null}
-    <button type="button" onClick={() => update(task.id, "done")}>Done / already done</button>
-    <button type="button" className="quiet-button" onClick={() => setSkipId(task.id)}>Skip</button>
-    {skipId === task.id ? <div className="cooking-skip-confirm" role="alert"><p>Skip this step only if it is unnecessary or already covered. Do not skip required food-safety checks.</p><button type="button" onClick={() => { update(task.id, "skipped"); setSkipId(""); }}>Confirm skip</button><button type="button" onClick={() => setSkipId("")}>Cancel skip</button></div> : null}
+  const taskControls = (task) => <div className="cooking-task-actions" key={task.id}>
+    {states[task.id]?.status !== "started" ? <button type="button" onClick={() => update(task.id, "started")}>Start step</button> : <button type="button" onClick={() => update(task.id, "done")}>Done · next step</button>}
+    <details className="cooking-step-options"><summary>More options</summary>
+      {states[task.id]?.status !== "started" ? <><button type="button" onClick={() => update(task.id, "done")}>Already done</button><button type="button" onClick={() => update(task.id, "started")}>Already started</button></> : null}
+      <button type="button" onClick={() => setSkipId(task.id)}>Skip step</button>
+    </details>
+    {skipId === task.id ? <div className="cooking-skip-confirm" role="alert"><p>Skip only if unnecessary or covered elsewhere. Keep required food-safety checks.</p><button type="button" onClick={() => { update(task.id, "skipped"); setSkipId(""); }}>Confirm skip</button><button type="button" onClick={() => setSkipId("")}>Cancel skip</button></div> : null}
   </div>;
-  const taskText = (task) => <><p className="eyebrow">{task.componentTitle} · {task.section}</p><p className="cooking-action-text">{task.text}</p><p>{task.durationMinutes ? `Recipe estimate: about ${task.durationMinutes} min. Check progress and doneness.` : "No reliable duration provided. Follow the recipe's cues."}</p></>;
+  const taskText = (task) => <><p className="eyebrow">{task.componentTitle} · Step {task.index + 1}</p><p className="cooking-action-text">{task.text}</p>{task.durationRange ? <p className="cooking-duration">{task.durationRange.min === task.durationRange.max ? task.durationRange.max : `${task.durationRange.min}–${task.durationRange.max}`} min · recipe estimate, not a doneness check</p> : null}</>;
+  const completed = plan.tasks.filter((task) => ["done", "skipped"].includes(states[task.id]?.status)).length;
   return <div className="cooking-view-backdrop"><section ref={dialogRef} tabIndex={-1} aria-label={`Cook ${title}`} aria-modal="true" className="cooking-view" role="dialog">
-    <header className="cooking-view-header"><div><p className="eyebrow">Tonight's meal · guided cooking</p><h2>{title}</h2></div><button className="cooking-close" type="button" onClick={onClose}>Close</button></header>
-    <div className="cooking-view-layout guided-cooking-layout">
-      <main className="cooking-directions guided-cooking-directions">
-        <p className="muted">Progress stays on this device, not the shared prep checklist. No alarms or background notifications.</p>
-        {storageError ? <p role="alert">{storageError}</p> : null}
-        {leftover ? <p className="planning-warnings">This is a leftover night. Review storage and reheat guidance below; these are the original cooking directions, not an instruction to make another batch.</p> : null}
+    <header className="cooking-view-header"><div><p className="eyebrow">Start cooking · {completed}/{plan.tasks.length} steps checked</p><h2>{title}</h2></div><button className="cooking-close" type="button" onClick={onClose}>Close</button></header>
+    <div className="cooking-view-layout guided-cooking-layout"><main className="cooking-directions guided-cooking-directions">
+      {storageError ? <p role="alert">{storageError}</p> : null}
+      <div className="cooking-next" aria-live="polite"><h3 ref={nextActionRef} tabIndex={-1}>{focus ? states[focus.id]?.status === "started" ? "You're working on" : "What to do now" : guidance.inProgress.length ? "Check what's cooking" : guidance.complete ? "Checklist finished" : "Review the recipes"}</h3>
+        {focus ? <>{taskText(focus)}{taskControls(focus)}{states[focus.id]?.status === "started" ? <label className="cooking-hands-off"><input type="checkbox" checked={Boolean(states[focus.id]?.handsOff ?? focus.passive)} onChange={(event) => setSession((current) => ({ ...current, states: { ...current.states, [focus.id]: { ...current.states[focus.id], handsOff: event.target.checked } } }))} />Hands-off for now. Show another dish.</label> : null}</> : <p>{guidance.complete ? "Confirm doneness and serving temperatures before eating." : "Check the running dishes or open all steps below."}</p>}
+      </div>
+      {guidance.inProgress.filter((task) => task.id !== focus?.id).map((task) => <details className="cooking-running" key={task.id}><summary>{task.componentTitle} · running{states[task.id]?.startedAt ? ` · ${Math.max(0, Math.floor((now - states[task.id].startedAt) / 60000))} min since marked started` : ""}</summary>{taskText(task)}<p>Keep checking it. No alarm will sound.</p>{taskControls(task)}<button type="button" onClick={() => setSession((current) => ({ ...current, states: { ...current.states, [task.id]: { ...current.states[task.id], handsOff: false } } }))}>Needs my attention</button></details>)}
+      {guidance.warnings.filter((warning) => !plan.warnings.includes(warning) && !warning.startsWith("Component timing is incomplete.")).map((warning) => <p className="planning-warnings" role="status" key={warning}>{warning}</p>)}
+      {guidance.unresolvedComponents.length ? <p role="alert">Some recipes have missing directions. Check Prep & timing before continuing.</p> : null}
+      {targetMinutes !== null && Number.isFinite(targetMinutes) ? <p className="cooking-duration">{targetMinutes < 0 ? "Serving target passed. Keep required doneness checks." : `${Math.ceil(targetMinutes)} min until serving target · not a finish estimate`}</p> : null}
+      {guidance.timingNeedsReview ? <details className="cooking-order-note"><summary>Timing incomplete · review order</summary><p>Unknown cook times are not treated as zero. This is a suggested order, not a calculated schedule. Choose a different dish below when needed.</p></details> : null}
+      {guidance.availableTasks.length > 1 ? <label className="cooking-dish-choice">Work on<select value={focus?.componentId || ""} onChange={(event) => setPreferredDish(event.target.value)}>{guidance.availableTasks.map((task) => <option key={task.componentId} value={task.componentId}>{task.componentTitle}</option>)}</select></label> : null}
+      <p className="cooking-session-note">Saved on this device · no alarms</p>
+      <details className="cooking-support"><summary>Ingredients</summary>{groups.map((group, groupIndex) => <section key={`${group.id}-${groupIndex}`}><h3>{group.title}</h3>{group.batchNote ? <p className="planning-warnings">{group.batchNote}</p> : null}<div className="cooking-ingredient-list">{(group.ingredients || []).map((ingredient, index) => { const key = `${group.id}:${groupIndex}:${index}:${ingredient.item}`; return <label key={key} className={checked.includes(key) ? "checked" : ""}><input type="checkbox" checked={checked.includes(key)} onChange={() => markIngredient(key)} /><span><strong>{ingredient.quantityText}</strong> {ingredient.item}</span></label>; })}</div></section>)}</details>
+      <details className="cooking-support cooking-preflight"><summary>Prep & timing</summary>
+        <p>Check thawing, make-ahead prep and equipment before starting. Earlier-day prep is not assumed done: use More options → Already done only for steps you actually finished. Follow recipe order. Shared ovens and pans may limit overlap.</p>
+        {leftover ? <p>Leftover night: review safe storage and reheating rather than making another batch.</p> : null}
         {batchNote ? <p className="planning-warnings">{batchNote}</p> : null}
-        <details className="cooking-preflight"><summary>Before you start: prep, timing and equipment</summary>
-          <p>Check that meat is safely thawed, advance prep is finished, and you have the needed equipment. Recipe steps stay in their original order. Review the whole meal for oven temperatures, equipment conflicts and make-ahead steps before starting.</p>
-          <label>Target serving time (optional)<input type="datetime-local" value={session.serveAt || ""} onChange={(event) => setSession((current) => ({ ...current, serveAt: event.target.value }))} /></label>
-          {session.serveAt ? <p>Target: {new Date(session.serveAt).toLocaleString()}. This is a reminder, not a guaranteed finish time. Missing prep times and shared equipment can change the schedule.</p> : null}
-          {plan.components.map((component) => <p key={component.id}>{component.title}: {component.knownMinutes ? `about ${component.knownMinutes} minutes in identified timed steps; other work may be untimed` : "timing needs review"}.</p>)}
-          {plan.knownMinutes ? <p>Recipe steps contain about {plan.knownMinutes} known minutes in total, before accounting for overlap or untimed work. This is not an elapsed-time estimate.</p> : null}
-          <p>Timers never establish food safety. Use a thermometer and the recipe's doneness checks; reheat leftovers to 165°F. Chill perishables within 2 hours (1 hour above 90°F).</p>
-          {plan.warnings?.length ? <ul>{plan.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul> : null}
-          {weekId ? <><h4>Saved weekly prep reference</h4><p>Review the relevant tasks below, including earlier-day work. These are not automatically matched or marked complete when you finish recipe steps.</p>{!prep ? <p role="status">Loading saved prep…</p> : prep.sections?.length ? prep.sections.map((section, index) => <details key={`${section.title}-${index}`}><summary>{section.title}</summary>{parsePrepTasks(section.markdown).map((task) => <article key={task.key || task.title}><strong>{(prep.checkedKeys || []).includes(prepTaskStableKey(weekId, section, task)) ? "✓ " : ""}{task.title}</strong><p className="cooking-prep-text">{task.details}</p></article>)}</details>) : <p>No saved prep tasks. Check the component recipes for advance preparation.</p>}</> : null}
-        </details>
-        {guidance.warnings.filter((warning) => !plan.warnings.includes(warning)).map((warning) => <p className="planning-warnings" role="status" key={warning}>{warning}</p>)}
-        {targetMinutes !== null && Number.isFinite(targetMinutes) ? <p className="planning-warnings">{targetMinutes < 0 ? "Your target serving time has passed. Do not rush required cooking or temperature checks." : `${Math.ceil(targetMinutes)} minutes until your target. Review remaining steps and equipment; timing is not guaranteed.`}</p> : null}
-        <div className="cooking-next" aria-live="polite"><h3>{focus ? states[focus.id]?.status === "started" ? "You're working on" : "What to do now" : guidance.inProgress.length ? "Check what's cooking" : guidance.complete ? "Checklist finished" : "Review the recipes"}</h3>
-          {focus ? <>{taskText(focus)}{taskControls(focus)}{states[focus.id]?.status === "started" ? <label className="cooking-hands-off"><input type="checkbox" checked={Boolean(states[focus.id]?.handsOff ?? focus.passive)} onChange={(event) => setSession((current) => ({ ...current, states: { ...current.states, [focus.id]: { ...current.states[focus.id], handsOff: event.target.checked } } }))} />This can run while I work on another dish (keep checking it)</label> : null}</> : <p>{guidance.complete ? "All steps are marked done or skipped. Confirm doneness and serving temperatures before eating." : "No actionable step is available. Review the full timeline and the recipes."}</p>}
-        </div>
-        {guidance.inProgress.filter((task) => task.id !== focus?.id).map((task) => <article className="cooking-running" key={task.id}><h4>While this runs</h4>{taskText(task)}<p>{states[task.id]?.startedAt ? `${Math.max(0, Math.floor((now - states[task.id].startedAt) / 60000))} minutes since you marked it started. Check it yourself; no alarm will sound.` : "Already started; elapsed time is unknown."}</p>{taskControls(task)}<button type="button" onClick={() => setSession((current) => ({ ...current, states: { ...current.states, [task.id]: { ...current.states[task.id], handsOff: false } } }))}>Needs my attention</button></article>)}
-        <button type="button" className="quiet-button" aria-expanded={showTimeline} onClick={() => setShowTimeline(!showTimeline)}>{showTimeline ? "Hide full timeline" : "View full timeline"}</button>
-        {showTimeline ? <div className="cooking-timeline"><p>Dependency order by dish, not a precise clock schedule. Start with the suggested action; other dishes become available while you mark a step hands-off.</p>{plan.tasks.map((task) => <article key={task.id}><strong>{task.componentTitle} · {task.index + 1} · {states[task.id]?.status || "pending"}</strong><p>{task.text}</p>{states[task.id]?.status && states[task.id].status !== "pending" ? <button type="button" onClick={() => update(task.id, "pending")}>Undo (also resets later steps in this dish)</button> : guidance.availableTasks.some((candidate) => candidate.id === task.id) ? taskControls(task) : <span>Finish earlier steps first.</span>}</article>)}</div> : null}
-        {restart ? <div className="planning-warnings"><p>Reset cooking progress for this meal on this device? Recipes and shared lists will not change.</p><button type="button" onClick={() => { setSession({}); setRestart(false); }}>Reset progress</button><button type="button" onClick={() => setRestart(false)}>Cancel</button></div> : <button type="button" className="quiet-button" onClick={() => setRestart(true)}>Restart this cooking session</button>}
-      </main>
-      <aside className="cooking-ingredients"><details open><summary>Ingredients by component</summary>{groups.map((group, groupIndex) => <section key={`${group.id}-${groupIndex}`}><h3>{group.title}</h3>{group.batchNote ? <p className="planning-warnings">{group.batchNote}</p> : null}<div className="cooking-ingredient-list">{(group.ingredients || []).map((ingredient, index) => { const key = `${group.id}:${groupIndex}:${index}:${ingredient.item}`; return <label key={key} className={checked.includes(key) ? "checked" : ""}><input type="checkbox" checked={checked.includes(key)} onChange={() => markIngredient(key)} /><span><strong>{ingredient.quantityText}</strong> {ingredient.item}</span></label>; })}</div></section>)}</details></aside>
-    </div>
+        <label>Target serving time (optional)<input type="datetime-local" value={session.serveAt || ""} onChange={(event) => setSession((current) => ({ ...current, serveAt: event.target.value }))} /></label>
+        <p>Serving target is a reminder, not a calculated finish time. Unknown times are not zero. Estimates never establish food safety.</p>
+        {plan.components.map((component) => <p key={component.id}><strong>{component.title}:</strong> {component.durationEstimate ? `${component.durationEstimate.min === component.durationEstimate.max ? component.durationEstimate.max : `${component.durationEstimate.min}–${component.durationEstimate.max}`} min · ${component.timingStatus === "recipe-estimate" ? "recipe summary estimate" : "timed steps"}.` : component.knownMinutes ? `Partial timing only: ${component.knownMinutes} min found in steps. Total unknown.` : "No reliable total time. Review the recipe."}</p>)}
+        {plan.warnings?.length ? <ul>{plan.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul> : null}
+        <p>Use a thermometer and recipe doneness checks. Reheat leftovers to 165°F. Chill perishables within 2 hours (1 hour above 90°F).</p>
+        {weekId ? <><h4>Saved weekly prep reference</h4><p>Read-only reference. Cooking progress does not update the shared prep checklist.</p>{!prep ? <p role="status">Loading saved prep.</p> : prep.sections?.length ? prep.sections.map((section, index) => <details key={`${section.title}-${index}`}><summary>{section.title}</summary>{parsePrepTasks(section.markdown).map((task) => <article key={task.key || task.title}><strong>{(prep.checkedKeys || []).includes(prepTaskStableKey(weekId, section, task)) ? "✓ " : ""}{task.title}</strong><p className="cooking-prep-text">{task.details}</p></article>)}</details>) : <p>No saved prep tasks. Check recipe advance preparation.</p>}</> : null}
+      </details>
+      <details className="cooking-support" open={showTimeline} onToggle={(event) => setShowTimeline(event.currentTarget.open)}><summary>All steps & progress</summary><div className="cooking-timeline"><p>Recipe order, not a precise clock schedule. Finish earlier steps before starting later ones.</p>{plan.tasks.map((task) => <article key={task.id}><strong>{task.componentTitle} · {task.index + 1} · {states[task.id]?.status || "pending"}</strong><p>{task.text}</p>{states[task.id]?.status && states[task.id].status !== "pending" ? <button type="button" onClick={() => update(task.id, "pending")}>Undo this and later steps in this dish</button> : guidance.availableTasks.some((candidate) => candidate.id === task.id) ? taskControls(task) : <span>Finish earlier steps first.</span>}</article>)}</div>
+        {restart ? <div className="planning-warnings"><p>Reset this device's progress? Recipes and shared lists stay unchanged.</p><button type="button" onClick={() => { setSession({}); setRestart(false); }}>Reset progress</button><button type="button" onClick={() => setRestart(false)}>Cancel</button></div> : <button type="button" className="quiet-button" onClick={() => setRestart(true)}>Restart cooking</button>}
+      </details>
+    </main></div>
   </section></div>;
 }

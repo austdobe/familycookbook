@@ -125,8 +125,13 @@ Draft generation and Apply require fresh server reads when Firebase is configure
 
 ## Guided Start Cooking
 
-Start Cooking coordinates every recipe attached to the selected meal. It recommends the next dependency-ready step, favoring the component with the most known timed work. Starting an active step pauses other suggestions until the user finishes it or explicitly marks it hands-off. Parallel work never implies that food can be left unattended. Steps are never completed by a timer. Done/already-done, confirmed Skip, Undo, and a confirmed session reset are available.
+Start Cooking coordinates every recipe attached to the selected meal. It recommends the next dependency-ready step, favoring the longest comparable recipe estimate; when durations are incomplete it keeps mains first, then the selected component order. Starting an active step pauses other suggestions until the user finishes it or explicitly marks it hands-off. Parallel work never implies that food can be left unattended. Steps are never completed by a timer. Done/already-done, confirmed Skip, Undo, and a confirmed session reset are available.
 
 The full timeline preserves each recipe's dependency order, not a precise oven/equipment schedule. Only one unambiguous recipe duration is parsed; missing/conditional timing remains unknown. An optional serving target is a visible reminder rather than a promised finish time. Shared oven/pan conflicts and make-ahead work require review. Saved weekly prep is available read-only inside preflight; it is not automatically matched or checked off by cooking actions.
 
 Progress and ingredient checks are local to this browser/device, keyed by week/card/batch plus content-sensitive task IDs. Recipe or portion changes start a separate session rather than silently carrying completion to changed directions. Cooking progress does not write recipes, menu data, or shared prep/grocery state. Linked leftover nights show storage/reheat guidance instead of starting another cooking batch.
+
+### Touch-first guided cooking refinement
+The cooking dialog foregrounds one next-action card, with ingredient, prep/timing, and full-progress sections collapsed by default. Touch targets are at least 48px. More options holds already-done/started and skip controls; step changes move keyboard focus to the next-action heading. A dish selector allows an intentional override without bypassing recipe dependencies.
+
+Component role and explicit recipe timing summaries are passed to the planner. Unknown durations are not zero: when component times are incomparable, mains precede sides in the chosen component order and the UI discloses that this is not a longest-cook calculation. Conditional stuffed/unstuffed roast ranges remain unknown. Earlier-day prep is never assumed complete merely because it was scheduled; the user can mark completed steps already done. The prep reference is still read-only and not semantically linked to recipe steps.

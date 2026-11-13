@@ -42,6 +42,24 @@ export function cookingDuration(step) {
   return { min, max, source: "recipe" };
 }
 
+// Recipe-level estimates are kept separate from step durations. They can help
+// choose which untouched component to begin, but do not create timers for steps.
+export function componentCookingEstimate(component = {}) {
+  const timing = component.timing || {};
+  const source = component.recipe || component;
+  const minutes = timing.totalMinutes ?? source.totalMinutes;
+  if (Number.isFinite(minutes) && minutes > 0) return { min: minutes, max: minutes, source: "recipe-total" };
+  const total = cookingDuration({ text: timing.totalTime || source.totalTime || "" });
+  if (total) return { ...total, source: "recipe-total" };
+  const prep = cookingDuration({ text: timing.prepTime || source.prepTime || "" });
+  const cook = cookingDuration({ text: timing.cookTime || source.cookTime || "" });
+  if (prep && cook) return { min: prep.min + cook.min, max: prep.max + cook.max, source: "recipe-prep-and-cook" };
+  // Cook time alone is partial, not a total preparation estimate.
+  return null;
+}
+
+const ROLE_PRIORITY = { complete: 0, main: 0, side: 1, sauce: 2, bread: 3, dessert: 4, drink: 5 };
+
 export function buildCookingPlan(input = []) {
   const tasks = [];
   const warnings = [];
@@ -73,7 +91,11 @@ export function buildCookingPlan(input = []) {
     if (missingDirections) warnings.push(`${title}: no usable directions are attached. Review this component before cooking.`);
     if (rawSteps.length !== steps.length) warnings.push(`${title}: some directions could not be read. Check the full recipe.`);
     const knownMinutes = componentTasks.reduce((total, task) => total + (task.durationMinutes || 0), 0);
-    return { ...component, id: componentId, title, taskIds: componentTasks.map((task) => task.id), missingDirections, knownMinutes };
+    const hasUnknownDurations = missingDirections || componentTasks.some((task) => !task.durationRange);
+    const recipeEstimate = componentCookingEstimate(component);
+    const durationEstimate = recipeEstimate || (!hasUnknownDurations ? componentTasks.reduce((range, task) => ({ min: range.min + task.durationRange.min, max: range.max + task.durationRange.max, source: "steps" }), { min: 0, max: 0, source: "steps" }) : null);
+    const timingStatus = recipeEstimate ? "recipe-estimate" : !hasUnknownDurations ? "complete" : knownMinutes ? "partial" : "unknown";
+    return { ...component, id: componentId, title, taskIds: componentTasks.map((task) => task.id), missingDirections, knownMinutes, hasUnknownDurations, durationEstimate, timingStatus };
   });
   const hasUnknownDurations = tasks.some((task) => !task.durationRange) || components.some((component) => component.missingDirections);
   if (hasUnknownDurations) warnings.push("Some steps have no unambiguous timing. Check the recipe and allow extra time; the known minutes are not a meal finish estimate.");
@@ -127,14 +149,33 @@ export function getCookingGuidance(plan, input = {}, now = Date.now()) {
       remainingMinutes: elapsedMinutes !== null && task.durationMinutes !== null ? Math.max(0, task.durationMinutes - elapsedMinutes) : null };
   });
   const needsAttention = inProgress.filter((task) => !task.handsOff);
-  const remainingKnown = (componentId) => tasks.filter((task) => task.componentId === componentId && !TERMINAL.has(states[task.id]?.status)).reduce((sum, task) => sum + (task.durationMinutes || 0), 0);
-  const availableTasks = needsAttention.length ? [] : tasks.filter((task) => !states[task.id] && (!task.predecessorId || TERMINAL.has(states[task.predecessorId]?.status)))
-    .sort((a, b) => remainingKnown(b.componentId) - remainingKnown(a.componentId) || tasks.indexOf(a) - tasks.indexOf(b));
+  const componentsById = new Map((plan?.components || []).map((component) => [component.id, component]));
+  const remainingEstimate = (componentId) => {
+    const component = componentsById.get(componentId);
+    const componentTasks = tasks.filter((task) => task.componentId === componentId);
+    const remaining = componentTasks.filter((task) => !TERMINAL.has(states[task.id]?.status));
+    if (component?.durationEstimate && componentTasks.every((task) => !states[task.id])) return component.durationEstimate.max;
+    // Once work begins, a whole-recipe estimate is not a remaining-time estimate.
+    // Untimed remaining steps are unknown, never zero.
+    if (remaining.some((task) => task.durationMinutes === null)) return null;
+    return remaining.reduce((sum, task) => sum + task.durationMinutes, 0);
+  };
+  const availableTasks = needsAttention.length ? [] : tasks.filter((task) => !states[task.id] && (!task.predecessorId || TERMINAL.has(states[task.predecessorId]?.status)));
+  const timingNeedsReview = availableTasks.length > 1 && availableTasks.some((task) => remainingEstimate(task.componentId) === null);
+  availableTasks.sort((a, b) => {
+    if (!timingNeedsReview) return (remainingEstimate(b.componentId) ?? 0) - (remainingEstimate(a.componentId) ?? 0) || tasks.indexOf(a) - tasks.indexOf(b);
+    // A conservative total ordering avoids comparing partial timings as if they
+    // were totals. Keep mains first and preserve the chosen component order.
+    const aRole = ROLE_PRIORITY[componentsById.get(a.componentId)?.role] ?? 1;
+    const bRole = ROLE_PRIORITY[componentsById.get(b.componentId)?.role] ?? 1;
+    return aRole - bRole || tasks.indexOf(a) - tasks.indexOf(b);
+  });
   const unresolvedComponents = (plan?.components || []).filter((component) => component.missingDirections);
   const complete = tasks.length > 0 && tasks.every((task) => TERMINAL.has(states[task.id]?.status)) && !unresolvedComponents.length;
   const warnings = [...(plan?.warnings || [])];
+  if (timingNeedsReview) warnings.push("Component timing is incomplete. The suggested order keeps mains first, then your component order; it is not a longest-cook calculation. Review missing cook times before starting.");
   if (tasks.some((task) => states[task.id]?.status === "skipped")) warnings.push("Skipped steps were not completed. Check that preparation and food-safety requirements are still met before serving.");
   if (inProgress.some((task) => task.remainingMinutes === 0)) warnings.push("A recipe time estimate has elapsed. Check the food and required temperature; nothing is marked done automatically.");
-  return { nextTask: needsAttention[0] || availableTasks[0] || null, inProgress, availableTasks, complete, unresolvedComponents, warnings, states };
+  return { nextTask: needsAttention[0] || availableTasks[0] || null, inProgress, availableTasks, complete, unresolvedComponents, timingNeedsReview, warnings, states };
 }
 

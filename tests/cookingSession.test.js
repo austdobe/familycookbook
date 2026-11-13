@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildCookingPlan, changeCookingTaskState, cookingDuration, getCookingGuidance, sanitizeCookingStates } from "../src/domain/cookingSession.js";
+import { buildCookingPlan, changeCookingTaskState, componentCookingEstimate, cookingDuration, getCookingGuidance, sanitizeCookingStates } from "../src/domain/cookingSession.js";
 
 const dish = (id, steps) => ({ id, title: id, steps });
 const task = (text, durationMinutes, passive = false) => ({ text, durationMinutes, passive });
@@ -112,3 +112,84 @@ test("known time totals are explicitly partial, not multiplied for components or
   assert.match(plan.warnings.join(" "), /not a meal finish estimate/);
 });
 
+
+
+const turkeySteps = [
+  { text: "Thaw an 18 lb turkey in the refrigerator for 4-5 days starting Saturday November 21; cook within 1-2 days after thawing." },
+  { text: "Heat oven to 325°F. Remove giblets, season, and stuff immediately before roasting if desired." },
+  { text: "Roast on rack. Allow roughly 4–4 1/2 hours unstuffed or 4 1/4–4 3/4 hours stuffed, but use a thermometer rather than time. Breast and innermost thigh/wing must reach 165°F; stuffing center must also reach 165°F. Shield overly browned skin loosely with foil." },
+  { text: "Rest 20 minutes, carve, and refrigerate leftovers promptly." },
+];
+const collardSteps = [
+  { text: "Cook bacon and onion, then add garlic for 30 seconds." },
+  { text: "Add greens and broth; simmer 60–90 minutes until tender." },
+  { text: "Add vinegar and season to taste." },
+  { text: "Make Wednesday if desired and reheat Thursday to 165°F." },
+];
+
+test("actual Thanksgiving conditional roast time remains unknown and never ranks as only 20 minutes", () => {
+  const plan = buildCookingPlan([
+    { id: "collards", title: "Collards", role: "side", steps: collardSteps },
+    { id: "turkey", title: "Turkey", role: "main", steps: turkeySteps },
+  ]);
+  const turkey = plan.components.find((component) => component.title === "Turkey");
+  const collards = plan.components.find((component) => component.title === "Collards");
+  assert.equal(cookingDuration(turkeySteps[2]), null, "stuffed/unstuffed alternatives are not added together or guessed");
+  assert.equal(turkey.knownMinutes, 20);
+  assert.equal(turkey.durationEstimate, null);
+  assert.equal(turkey.timingStatus, "partial");
+  assert.equal(collards.knownMinutes, 90);
+  assert.equal(collards.timingStatus, "partial");
+  const guidance = getCookingGuidance(plan);
+  assert.equal(guidance.nextTask.componentTitle, "Turkey");
+  assert.equal(guidance.timingNeedsReview, true);
+  assert.match(guidance.warnings.join(" "), /not a longest-cook calculation/);
+  assert.equal(guidance.nextTask.text, turkeySteps[0].text, "advance prep is not marked done because it was scheduled earlier");
+});
+
+test("unknown timing fallback is deterministic main-first, not a numeric zero estimate", () => {
+  const plan = buildCookingPlan([
+    { ...dish("timed side", [task("Cook", 90)]), role: "side" },
+    { ...dish("unknown main", ["Cook until thermometer target"]), role: "main" },
+    { ...dish("timed main", [task("Cook", 30)]), role: "main" },
+  ]);
+  const guidance = getCookingGuidance(plan);
+  assert.equal(plan.components[1].timingStatus, "unknown");
+  assert.equal(plan.components[1].durationEstimate, null);
+  assert.deepEqual(guidance.availableTasks.map((entry) => entry.componentTitle), ["unknown main", "timed main", "timed side"]);
+  assert.equal(guidance.timingNeedsReview, true);
+});
+
+test("explicit recipe metadata supports ordering without manufacturing step timers", () => {
+  assert.deepEqual(componentCookingEstimate({ timing: { totalTime: "4–4 1/2 hours" } }), { min: 240, max: 270, source: "recipe-total" });
+  assert.deepEqual(componentCookingEstimate({ timing: { prepTime: "20 minutes", cookTime: "60–90 minutes" } }), { min: 80, max: 110, source: "recipe-prep-and-cook" });
+  assert.equal(componentCookingEstimate({ timing: { cookTime: "90 minutes" } }), null, "cook-only is not a whole-recipe estimate");
+  assert.equal(componentCookingEstimate({ timing: { totalTime: "4 hours unstuffed or 5 hours stuffed" } }), null);
+  const plan = buildCookingPlan([
+    { ...dish("salad", [task("Make salad", 5)]), role: "side" },
+    { ...dish("main", ["Prepare", "Roast to safe temperature"]), role: "main", timing: { totalMinutes: 240 } },
+  ]);
+  assert.equal(plan.components[1].timingStatus, "recipe-estimate");
+  assert.equal(plan.components[1].durationEstimate.max, 240);
+  assert.equal(plan.tasks[1].durationMinutes, null);
+  assert.equal(getCookingGuidance(plan).nextTask.componentTitle, "main");
+  assert.equal(getCookingGuidance(plan).timingNeedsReview, false);
+  const states = changeCookingTaskState(plan, {}, plan.tasks[1].id, "done");
+  assert.equal(getCookingGuidance(plan, states).timingNeedsReview, true, "whole recipe estimate cannot be treated as remaining time after untimed work");
+});
+
+test("active work, dependencies and hands-off remain authoritative with unknown timing", () => {
+  const plan = buildCookingPlan([
+    { id: "collards", title: "Collards", role: "side", steps: collardSteps },
+    { id: "turkey", title: "Turkey", role: "main", steps: turkeySteps },
+  ]);
+  const collardFirst = plan.tasks[0];
+  let states = changeCookingTaskState(plan, {}, collardFirst.id, "started", 1000);
+  assert.equal(getCookingGuidance(plan, states).nextTask.id, collardFirst.id, "don't interrupt already active bacon cooking");
+  assert.equal(getCookingGuidance(plan, states).availableTasks.length, 0);
+  states = changeCookingTaskState(plan, states, collardFirst.id, "done");
+  states = changeCookingTaskState(plan, states, plan.tasks[1].id, "started", 2000);
+  states[plan.tasks[1].id].handsOff = true;
+  assert.equal(getCookingGuidance(plan, states).nextTask.componentTitle, "Turkey");
+  assert.equal(getCookingGuidance(plan, states).availableTasks.some((entry) => entry.id === plan.tasks[2].id), false, "do not advance collards until simmer completed");
+});
