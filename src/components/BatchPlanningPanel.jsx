@@ -1,3 +1,4 @@
+import { mealDisplayName } from "../domain/mealNames.js";
 import React, { useEffect, useState } from "react";
 import { recipeBaseServings, resolveSourceMeal } from "../domain/batchPlanning.js";
 
@@ -40,7 +41,7 @@ export function BatchPlanningPanel({ row, rows, docs, onSave }) {
       <p>Cook once, then link the nights that use that batch. Groceries count the cooking batch only.</p>
       <div className="batch-fields">
         <label>Meal plan type<select value={kind} onChange={(event) => setKind(event.target.value)}><option value="cook">Cook a batch</option><option value="leftover">Eat leftovers</option></select></label>
-        {kind === "cook" ? <label>Total portions to cook<input min="1" max="100" step="1" type="number" value={batchServings} placeholder={base ? `Recipe makes ${base}` : "Use recipe yield"} onChange={(event) => setBatchServings(event.target.value)} /></label> : <label>Use batch from<select value={sourceDay} onChange={(event) => setSourceDay(event.target.value)}><option value="">Choose a cooking day</option>{choices.map((candidate) => <option key={candidate.Day} value={candidate.Day}>{candidate.Day}: {candidate.Meal}</option>)}</select></label>}
+        {kind === "cook" ? <label>Total portions to cook<input min="1" max="100" step="1" type="number" value={batchServings} placeholder={base ? `Recipe makes ${base}` : "Use recipe yield"} onChange={(event) => setBatchServings(event.target.value)} /></label> : <label>Use batch from<select value={sourceDay} onChange={(event) => setSourceDay(event.target.value)}><option value="">Choose a cooking day</option>{choices.map((candidate) => <option key={candidate.Day} value={candidate.Day}>{candidate.Day}: {mealDisplayName(candidate, docs)}</option>)}</select></label>}
         <label>Portions eaten this night<input min="1" max="100" step="1" type="number" value={dinnerServings} onChange={(event) => setDinnerServings(event.target.value)} /></label>
         {kind === "leftover" ? <label>Storage before this night<select value={storage} onChange={(event) => setStorage(event.target.value)}><option value="fridge">Refrigerator</option><option value="freezer">Freeze promptly, then thaw</option></select></label> : null}
       </div>

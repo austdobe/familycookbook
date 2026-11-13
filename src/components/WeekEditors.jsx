@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { mealDisplayName, mealCustomName, isComposedMeal } from "../domain/mealNames.js";
 import { RecipePicker } from "./RecipePicker.jsx";
 import { ConfirmDialog } from "./WeekPresentation.jsx";
 
@@ -16,9 +17,13 @@ export function WeekMealAssignmentPanel({
   onRecipeDragStart,
   onRemoveComponent,
   onSetTitleOnlyMeal,
+  onSaveMealName,
   pickerProps,
   selectedRow,
 }) {
+  const [mealName, setMealName] = useState(() => mealCustomName(selectedRow, archiveDocs));
+  const [nameSaving, setNameSaving] = useState(false);
+  const [nameError, setNameError] = useState("");
   const [titleOnlyMeal, setTitleOnlyMeal] = useState("");
   const [weekActionsOpen, setWeekActionsOpen] = useState(false);
   const [mealStyle, setMealStyle] = useState("complete");
@@ -30,6 +35,11 @@ export function WeekMealAssignmentPanel({
     setMealStyle(initialMealStyle);
     setComponentRole(initialMealStyle === "hybrid" ? "side" : "main");
   }, [initialMealStyle, selectedRow?.Day]);
+
+  useEffect(() => {
+    setMealName(mealCustomName(selectedRow, archiveDocs));
+    setNameError("");
+  }, [selectedRow?.Day, selectedRow?.customMealName, selectedRow?.Meal]);
 
   if (!selectedRow) {
     return null;
@@ -43,7 +53,7 @@ export function WeekMealAssignmentPanel({
           <h3>{selectedRow.Day || "Choose a day"}</h3>
         </div>
         <div className="week-planner-header-actions">
-          <span className="pill">{selectedRow.Meal || "Open"}</span>
+          <span className="pill">{mealDisplayName(selectedRow, archiveDocs) || "Open"}</span>
           <button aria-label="Close meal editor" className="icon-button" onClick={onClose} type="button">x</button>
         </div>
       </div>
@@ -81,6 +91,16 @@ export function WeekMealAssignmentPanel({
           </select>
         </label>
       ) : null}
+      {isComposedMeal(selectedRow) && onSaveMealName ? <form className="meal-name-editor" onSubmit={async (event) => {
+        event.preventDefault(); setNameSaving(true); setNameError("");
+        try { await onSaveMealName(mealName); } catch { setNameError("Could not save the meal name. Try again."); }
+        finally { setNameSaving(false); }
+      }}>
+        <label>Meal name (optional)<input maxLength={100} value={mealName} onChange={(event) => setMealName(event.target.value)} placeholder="e.g. Thanksgiving dinner" /></label>
+        <p>Leave blank to use the day’s meal name. Recipes stay attached.</p>
+        <button className="primary-button" type="submit" disabled={nameSaving || mealName.trim() === mealCustomName(selectedRow, archiveDocs)}>{nameSaving ? "Saving…" : "Save meal name"}</button>
+        {nameError ? <p role="alert">{nameError}</p> : null}
+      </form> : null}
       {components.length ? (
         <div className="planned-meal-components">
           <h4>Attached recipes</h4>

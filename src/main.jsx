@@ -1,3 +1,4 @@
+import { mealDisplayName, mealCustomName, isComposedMeal, withMealName } from "./domain/mealNames.js";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { RecipeImportDialog } from "./components/RecipeImportDialog.jsx";
@@ -629,6 +630,11 @@ function WeekView({
     setActiveDocId(missingRecipeSelectionId(nextRow));
   };
 
+  const saveMealNameForSelectedDay = async (name) => {
+    if (!selectedRow || !isComposedMeal(selectedRow)) return;
+    await saveRows(replaceMenuRowForDay(sourceMenuRows, withMealName(selectedRow, name)));
+  };
+
   const removeMealComponentForSelectedDay = async (componentIndex) => {
     if (!selectedRow) return;
     const components = mealComponentsForRow(selectedRow).filter((_, index) => index !== componentIndex);
@@ -904,6 +910,7 @@ function WeekView({
           }}
           onRemoveComponent={removeMealComponentForSelectedDay}
           onSetTitleOnlyMeal={setTitleOnlyMealForSelectedDay}
+          onSaveMealName={saveMealNameForSelectedDay}
           pickerProps={{
             dragType: RECIPE_DRAG_TYPE,
             getCategory: recipePickerCategory,
@@ -983,7 +990,7 @@ function WeekView({
           weekId={week.id}
           sessionId={`${week.id}:${selectedRow?.Day || readerDoc.id}:${selectedRow?.batchServings || ""}:${selectedRow?.planKind || "cook"}`}
           onClose={() => setCookingDialogOpen(false)}
-          title={selectedRow?.Meal || readerDoc.title}
+          title={mealDisplayName(selectedRow, allRecipeDocs) || readerDoc.title}
         />
       ) : null}
       {feedbackDialogOpen && readerDoc ? (
@@ -2264,6 +2271,7 @@ function archiveRecipeToMenuRow(doc, day, role = "complete") {
   return {
     Day: day,
     Meal: doc.title,
+    customMealName: "",
     mealType: role === "complete" ? "complete_recipe" : "composed",
     planKind: "cook",
     leftoverOfBatchId: "",
@@ -2342,21 +2350,24 @@ function menuRowWithComponents(row, components, docs) {
   const primaryDoc = componentDocs[0];
   if (!primaryDoc) return { ...row, components };
   const projected = archiveRecipeToMenuRow(primaryDoc, row.Day, components[0].role);
-  return {
+  const nextRow = {
     ...row,
     ...projected,
     Meal: componentDocs.map((doc) => doc.title).join(" + "),
+    customMealName: isComposedMeal(row) ? mealCustomName(row, docs) : "",
     components,
     mealType: components.some((component) => component.role === "complete")
       ? (components.length === 1 ? "complete_recipe" : "hybrid")
       : "composed",
   };
+  return withMealName(nextRow, nextRow.customMealName, docs);
 }
 
 function titleOnlyMealToMenuRow(mealTitle, day) {
   return {
     Day: day,
     Meal: mealTitle.trim(),
+    customMealName: "",
     components: [],
     mealType: "title_only",
     planKind: "",

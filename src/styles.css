@@ -2186,3 +2186,17 @@
 
 .cooking-order-note { font-size: 14px; color: var(--muted); margin: 0 0 8px; }
 .cooking-order-note summary { font-weight: 400; }
+
+/* Keep long projected meal names out of the fixed cooking header. Full names
+   remain available in Meal details, including unusually long single dishes. */
+.cooking-view-header { padding: 10px 14px; gap: 12px; }
+.cooking-view-header h2 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-size: 20px; line-height: 1.25; }
+.cooking-view-header .eyebrow { font-size: 11px; line-height: 1.4; }
+.cooking-view-header .cooking-close { min-width: 64px; min-height: 48px; padding: 8px 12px; }
+.cooking-meal-details p, .cooking-meal-details li { overflow-wrap: anywhere; }
+
+.meal-name-editor { display: grid; gap: 10px; margin: 20px 0; max-width: 600px; }
+.meal-name-editor label { display: grid; gap: 8px; font-weight: 700; }
+.meal-name-editor input { width: 100%; min-height: 48px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
+.meal-name-editor p { margin: 0; color: var(--muted); }
+.meal-name-editor button { min-height: 48px; }

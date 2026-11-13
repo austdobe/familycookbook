@@ -22,6 +22,12 @@ test("guided cooking renders whole meal next action and preserves source ingredi
   const uncertain = renderToStaticMarkup(React.createElement(CookingViewDialog,{components:[{id:"collards",role:"side",title:"Collards",steps:[{text:"Cook bacon."},{text:"Simmer 60–90 minutes."}]},{id:"turkey",role:"main",title:"Turkey",steps:[{text:"Check the turkey is thawed."},{text:"Roast until thermometer confirms doneness."}]}],title:"Dinner",onClose(){}}));
   assert.ok(uncertain.indexOf("Check the turkey is thawed.") < uncertain.indexOf("Cook bacon."));
   assert.match(uncertain, /Timing incomplete/);
+  const composedTitle = components.map(component => component.title).join(" + ");
+  const compact = renderToStaticMarkup(React.createElement(CookingViewDialog,{components,title:composedTitle,onClose(){}}));
+  assert.match(compact, /Tonight&#x27;s meal/);
+  assert.match(compact, /Meal details/);
+  assert.doesNotMatch(compact, /<h2[^>]*>Rice \+ Turkey<\/h2>/);
+
   assert.match(uncertain, /Unknown cook times are not treated as zero/);
   const legacy=renderToStaticMarkup(React.createElement(CookingViewDialog,{recipeId:"old",ingredients:[],steps:[{text:"Stir until smooth."}],title:"Sauce",onClose(){}}));
   assert.match(legacy,/Stir until smooth/); assert.match(legacy,/No reliable total time/);

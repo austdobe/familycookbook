@@ -1,3 +1,4 @@
+import { mealDisplayName } from "./mealNames.js";
 const weekdays = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 const unicodeFractions = { "¼": "1/4", "½": "1/2", "¾": "3/4", "⅓": "1/3", "⅔": "2/3", "⅛": "1/8", "⅜": "3/8", "⅝": "5/8", "⅞": "7/8" };
 const numberPattern = String.raw`(?:\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?|\.\d+)`;
@@ -98,7 +99,7 @@ export function projectedRowsWithLeftovers(rows = []) {
   return rows.map((row) => {
     if (row.planKind !== "leftover") return row;
     const source = resolveSourceMeal(row, rows);
-    return { ...row, Meal: source?.Meal ? `Leftovers: ${source.Meal}` : "Leftovers: source meal missing or conflicting" };
+    return { ...row, Meal: source?.Meal ? `Leftovers: ${mealDisplayName(source)}` : "Leftovers: source meal missing or conflicting" };
   });
 }
 

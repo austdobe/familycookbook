@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { buildCookingPlan, getCookingGuidance, changeCookingTaskState } from "../domain/cookingSession.js";
+import { cookingMealTitle } from "../domain/cookingTitle.js";
 import { subscribePrepState } from "../services/prepStore.js";
 import { parsePrepTasks } from "../domain/prepTasks.js";
 import { prepTaskStableKey } from "../domain/listReconciliation.js";
@@ -79,9 +80,10 @@ export function CookingViewDialog({ components = [], ingredients = [], steps = [
     {skipId === task.id ? <div className="cooking-skip-confirm" role="alert"><p>Skip only if unnecessary or covered elsewhere. Keep required food-safety checks.</p><button type="button" onClick={() => { update(task.id, "skipped"); setSkipId(""); }}>Confirm skip</button><button type="button" onClick={() => setSkipId("")}>Cancel skip</button></div> : null}
   </div>;
   const taskText = (task) => <><p className="eyebrow">{task.componentTitle} · Step {task.index + 1}</p><p className="cooking-action-text">{task.text}</p>{task.durationRange ? <p className="cooking-duration">{task.durationRange.min === task.durationRange.max ? task.durationRange.max : `${task.durationRange.min}–${task.durationRange.max}`} min · recipe estimate, not a doneness check</p> : null}</>;
+  const mealTitle = cookingMealTitle(title, groups);
   const completed = plan.tasks.filter((task) => ["done", "skipped"].includes(states[task.id]?.status)).length;
-  return <div className="cooking-view-backdrop"><section ref={dialogRef} tabIndex={-1} aria-label={`Cook ${title}`} aria-modal="true" className="cooking-view" role="dialog">
-    <header className="cooking-view-header"><div><p className="eyebrow">Start cooking · {completed}/{plan.tasks.length} steps checked</p><h2>{title}</h2></div><button className="cooking-close" type="button" onClick={onClose}>Close</button></header>
+  return <div className="cooking-view-backdrop"><section ref={dialogRef} tabIndex={-1} aria-label={`Cook ${mealTitle.heading}`} aria-modal="true" className="cooking-view" role="dialog">
+    <header className="cooking-view-header"><div><p className="eyebrow">Start cooking · {completed}/{plan.tasks.length} steps checked</p><h2 title={mealTitle.fullTitle}>{mealTitle.heading}</h2></div><button className="cooking-close" type="button" onClick={onClose}>Close</button></header>
     <div className="cooking-view-layout guided-cooking-layout"><main className="cooking-directions guided-cooking-directions">
       {storageError ? <p role="alert">{storageError}</p> : null}
       <div className="cooking-next" aria-live="polite"><h3 ref={nextActionRef} tabIndex={-1}>{focus ? states[focus.id]?.status === "started" ? "You're working on" : "What to do now" : guidance.inProgress.length ? "Check what's cooking" : guidance.complete ? "Checklist finished" : "Review the recipes"}</h3>
@@ -94,6 +96,7 @@ export function CookingViewDialog({ components = [], ingredients = [], steps = [
       {guidance.timingNeedsReview ? <details className="cooking-order-note"><summary>Timing incomplete · review order</summary><p>Unknown cook times are not treated as zero. This is a suggested order, not a calculated schedule. Choose a different dish below when needed.</p></details> : null}
       {guidance.availableTasks.length > 1 ? <label className="cooking-dish-choice">Work on<select value={focus?.componentId || ""} onChange={(event) => setPreferredDish(event.target.value)}>{guidance.availableTasks.map((task) => <option key={task.componentId} value={task.componentId}>{task.componentTitle}</option>)}</select></label> : null}
       <p className="cooking-session-note">Saved on this device · no alarms</p>
+      {mealTitle.showDetails ? <details className="cooking-support cooking-meal-details"><summary>Meal details{mealTitle.componentCount > 1 ? ` · ${mealTitle.componentCount} dishes` : ""}</summary>{mealTitle.fullTitle !== groups.map((group) => group.title).join(" + ") ? <p>{mealTitle.fullTitle}</p> : null}{mealTitle.componentCount > 1 ? <ul>{groups.map((group, index) => <li key={`${group.id}-${index}`}>{group.title}</li>)}</ul> : null}</details> : null}
       <details className="cooking-support"><summary>Ingredients</summary>{groups.map((group, groupIndex) => <section key={`${group.id}-${groupIndex}`}><h3>{group.title}</h3>{group.batchNote ? <p className="planning-warnings">{group.batchNote}</p> : null}<div className="cooking-ingredient-list">{(group.ingredients || []).map((ingredient, index) => { const key = `${group.id}:${groupIndex}:${index}:${ingredient.item}`; return <label key={key} className={checked.includes(key) ? "checked" : ""}><input type="checkbox" checked={checked.includes(key)} onChange={() => markIngredient(key)} /><span><strong>{ingredient.quantityText}</strong> {ingredient.item}</span></label>; })}</div></section>)}</details>
       <details className="cooking-support cooking-preflight"><summary>Prep & timing</summary>
         <p>Check thawing, make-ahead prep and equipment before starting. Earlier-day prep is not assumed done: use More options → Already done only for steps you actually finished. Follow recipe order. Shared ovens and pans may limit overlap.</p>
